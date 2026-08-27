@@ -1,4 +1,4 @@
-# Directive 02: Adversarial review
+# Directive 03: Adversarial review
 
 You are the adversarial reviewer. Your job is to break the corpus, not to
 approve it.
@@ -20,6 +20,8 @@ read or write is named relative to it:
 - `rounds/round-NN-review.jsonl`, your per-item verdicts
 - `rounds/round-NN-report.md`, your corpus-level report
 - `rounds/round-NN-seek.md`, the seeking agent's log for this round
+- `rounds/round-NN-second-pass.jsonl` and `rounds/round-NN-second-pass.md`, the
+  round's independent second passes and their log, which you read but never edit
 
 Links below that begin with `../` are there so they resolve when reading this
 file on GitHub. They are not the paths to write to.
@@ -36,7 +38,10 @@ file on GitHub. They are not the paths to write to.
 4. `../corpus/functional-images.jsonl`. Review every item with status
    `candidate`.
 5. `../rounds/round-NN-seek.md`. What the seeking agent claims it did.
-6. Your own previous review reports. If you raised a corpus-level finding and it
+6. `../rounds/round-NN-second-pass.jsonl` and the second pass log beside it, for
+   every round, not only this one. They are how you tell a real second pass from
+   a `pass-b` entry someone typed in after writing the first.
+7. Your own previous review reports. If you raised a corpus-level finding and it
    is still true, raise it again and say it is repeating. A finding that
    silently disappears is worse than one that stays open.
 
@@ -112,7 +117,16 @@ page drift, and say which one you concluded and why.
 
 - Every required schema field present and well formed. Code `MISSING-FIELD`.
 - Two independent gold standard passes, or a recorded adjudication. Code
-  `NO-SECOND-PASS`.
+  `NO-SECOND-PASS`. Independence is checkable, so check it: the second pass must
+  appear in `../rounds/round-NN-second-pass.jsonl` for the round that added it,
+  with the same alt text and the same rationale. A `pass-b` entry that appears
+  in no round's second pass file was written by the seeking agent looking at its
+  own first answer, and is not a second pass. Code `NO-SECOND-PASS` and make it
+  blocking.
+- An adjudication, where the passes disagree, that names the criterion which
+  settles it rather than asserting a preference. An adjudication that simply
+  restates the winning answer leaves the disagreement unresolved. Code
+  `NO-RATIONALE`.
 - Provenance note adequate to cite the item in published results. Code
   `LICENSE-UNCLEAR`.
 
@@ -121,7 +135,10 @@ page drift, and say which one you concluded and why.
 - `accept`. No blocking defect, and no missing required field. The item is
   benchmark-grade.
 - `revise`. Fixable by the seeking agent without recollection. Name the exact
-  change required.
+  change required. An item whose two passes disagree with no adjudication
+  recorded is always `revise`, never `accept`, and the required change is the
+  adjudication. `tools/apply-verdicts.mjs` refuses such a promotion and stops the
+  loop, so an `accept` there costs the round.
 - `reject`. Not salvageable. Wrong classification that cannot be re-filed,
   unverifiable provenance, or leakage inherent to the item.
 
@@ -154,6 +171,11 @@ pass, examine the corpus as a whole and report on:
   corpus is teaching a format rather than a judgment.
 - Whether the seeking agent's search strategies are actually varying across
   rounds, or repeating and mining the same seams.
+- Pass agreement. What share of second passes agreed with the first, across the
+  round and across the corpus? Near-total agreement on ambiguous items is a sign
+  the passes were not really independent, and it is a blocking finding when the
+  second pass log shows it read the corpus. Near-total disagreement on standard
+  items is a sign one of the two is not working the criteria. Say which you see.
 - Whether the adjudications, taken together, are consistent. Two items with the
   same structure must not have opposite gold standards without a stated reason.
 - Whether the corpus could support the benchmark's stated purpose today, and if

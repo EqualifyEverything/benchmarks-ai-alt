@@ -2,7 +2,7 @@
 
 This directive is the specification. It is not run by an agent on its own.
 Every other directive in this project reads it and is bound by it. The loop in
-[03-loop.md](03-loop.md) stops when the acceptance criteria below are met.
+[04-loop.md](04-loop.md) stops when the acceptance criteria below are met.
 
 Corpus version: v0.1, functional images.
 
@@ -112,7 +112,14 @@ targets keep the corpus from filling up with icons any model can label.
 
 - Every accepted item needs two independent gold standard passes that agree, or
   a recorded adjudication explaining the disagreement and the resolution.
-- Independent means the second pass is authored without reading the first.
+- Independent means the second pass is authored without reading the first. It is
+  a separate turn, run from [02-second-pass.md](02-second-pass.md) over a file
+  that carries page context and no first answer, because an agent cannot forget
+  what it wrote a moment ago. A `pass-b` produced in the same turn as `pass-a` is
+  not a second pass, and the reviewer treats it as none.
+- A disagreement between the passes is a legitimate state for a candidate item
+  and the most useful thing this process produces. It is resolved by the next
+  round's seeking agent writing an adjudication, not by discarding a pass.
 - Rationales must cite the criteria they rest on, not restate the answer.
 - Where the correct answer depends on a contested reading of the guidance, say
   so in the item rather than hiding it behind a confident label.

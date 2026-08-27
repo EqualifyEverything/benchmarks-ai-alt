@@ -50,6 +50,18 @@ the `required_change` from its review record, and set it back to `candidate` so
 it is reviewed again. That is the only status change you may make to an existing
 item, and new items you record enter as `candidate`.
 
+Then adjudicate. Any item whose two entries in `gold_alt_passes` hold different
+alt text is waiting for you: the validator's `pending` line counts them. Read
+both rationales, decide which reading wins, write the decision into
+`adjudication` saying which criterion settles it, and set `gold_alt` to the
+winning answer. An unadjudicated disagreement cannot be accepted, so these items
+are closer to done than anything you could go and find.
+
+Adjudicate honestly. If both readings are defensible, say so in the adjudication
+and mark the item's difficulty `ambiguous`. Those are the items the benchmark
+needs most. If neither pass is right, write the answer that is, and say why both
+passes missed it.
+
 Never delete a record, including a rejected one. A rejected item is evidence
 about what does not belong in the corpus.
 
@@ -289,22 +301,22 @@ rationale, and the reviewer will reject the item.
 If the item is dual-purpose, functional and informative at once, say so and
 explain what the alt text must carry beyond the function.
 
-### 6. Second pass, independently
+### 6. Leave the second pass alone
 
-The corpus requires two independent gold standard passes per item. Independent
-means the second pass does not read the first.
+The corpus requires two independent gold standard passes per item, and
+independent means the second pass does not read the first. You have read the
+first, because you wrote it, so you cannot author the second. Record your pass as
+the single entry in `gold_alt_passes`, with `author` set to `pass-a`, and stop
+there.
 
-Where the harness supports subagents, delegate the second pass to a subagent
-given only the image, the context fields, and the criteria, never your answer or
-your rationale. Where it does not, leave the item with a single entry in
-`gold_alt_passes` and say so in your run log. A single-pass item stays a
-candidate: the schema forbids promoting it, and the reviewer will code
-`NO-SECOND-PASS` against it. Do not write a second pass yourself after seeing
-the first and call it independent.
+[02-second-pass.md](02-second-pass.md) runs after you, in its own turn, from a
+file that carries the page context and none of your conclusions. That is where
+the second pass comes from. A pass you write yourself after seeing the first is
+not independent, however carefully you try to forget it, and it is worse than a
+missing one because it looks like corroboration.
 
-Where the two passes disagree, record both and write an adjudication naming the
-reading that wins and why. Disagreements are signal. They are the material that
-shows model developers how alt text professionals actually decide.
+A single-pass item stays a candidate. The schema forbids promoting it, and the
+reviewer codes `NO-SECOND-PASS` against it.
 
 ### 7. Run the leakage check
 
@@ -338,6 +350,9 @@ covering:
 - How many candidates you found, verified, and recorded, and how many you
   dropped, with reasons.
 - Revisions applied from the previous review.
+- Which pass disagreements you adjudicated, and which reading won in each. A
+  disagreement you resolved by picking your own earlier answer needs saying
+  plainly, because that is the outcome to be suspicious of.
 - Updated counts against every target in directive 00.
 - What you could not find, and what you would try next. If a sub-type is
   resisting collection, say so plainly. That is a finding, not a failure.

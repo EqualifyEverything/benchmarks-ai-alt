@@ -146,6 +146,25 @@ const isBool = (v) => typeof v === 'boolean'
 const isInt = (v) => Number.isInteger(v)
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 
+// Where an item stands on the two-independent-passes rule in directive 00.
+//
+//   one-pass     only the first pass exists, so directives/02-second-pass.md
+//                has not run over it yet
+//   disagreeing  a second pass exists and differs, which is the interesting
+//                case and needs an adjudication before acceptance
+//   settled      two agreeing passes, or a recorded adjudication
+//
+// Only `settled` items can be accepted. The other two are ordinary states for a
+// candidate, and counting them is how the loop knows what it still owes.
+function passState(rec) {
+  if (isStr(rec.adjudication) && rec.adjudication.trim() !== '') return 'settled'
+  const passes = Array.isArray(rec.gold_alt_passes)
+    ? rec.gold_alt_passes.filter(isObj) : []
+  if (passes.length < 2) return 'one-pass'
+  return new Set(passes.map((p) => p.alt).filter(isStr)).size > 1
+    ? 'disagreeing' : 'settled'
+}
+
 function isHttpUrl(v) {
   if (!isStr(v)) return false
   try {
@@ -321,12 +340,17 @@ function validateItem(rec, line, seenIds, path) {
     })
     const alts = new Set(rec.gold_alt_passes
       .filter(isObj).map((p) => p.alt).filter(isStr))
-    if (alts.size > 1 && !(isStr(rec.adjudication) &&
-        rec.adjudication.trim() !== '')) {
+    const settled = isStr(rec.adjudication) && rec.adjudication.trim() !== ''
+    // A second pass that disagrees with the first is a normal state for a
+    // candidate, and the whole point of authoring it blind. The disagreement is
+    // a finding, not a defect, and the next round resolves it. Only acceptance
+    // requires it settled, which is checked with the other accepted-item rules
+    // below and refused by tools/apply-verdicts.mjs.
+    if (alts.size > 1 && !settled && rec.status === 'accepted') {
       bad(`${id}: passes disagree, so \`adjudication\` is required`)
     }
     if (isStr(rec.gold_alt) && alts.size > 0 && !alts.has(rec.gold_alt) &&
-        !(isStr(rec.adjudication) && rec.adjudication.trim() !== '')) {
+        !settled) {
       bad(`${id}: \`gold_alt\` matches no pass and there is no adjudication`)
     }
   }
@@ -362,6 +386,12 @@ function validateItem(rec, line, seenIds, path) {
     if (Array.isArray(rec.gold_alt_passes) && rec.gold_alt_passes.length < 2 &&
         !(isStr(rec.adjudication) && rec.adjudication.trim() !== '')) {
       bad(`${id}: \`accepted\` needs two independent passes, or an adjudication`)
+    }
+    if (Array.isArray(rec.gold_alt_passes) &&
+        new Set(rec.gold_alt_passes.filter(isObj).map((p) => p.alt)
+          .filter(isStr)).size > 1 &&
+        !(isStr(rec.adjudication) && rec.adjudication.trim() !== '')) {
+      bad(`${id}: \`accepted\` with disagreeing passes needs an \`adjudication\``)
     }
   }
 
@@ -550,12 +580,11 @@ function assess(items, reviews, reports) {
       ? `every sub-type spans ${TARGETS.domainsPerSubtype} or more domains`
       : thinSpread.map(([s, set]) => `${s}: ${set.size}`).join(', '))
 
-  const noSecond = accepted.filter((r) =>
-    !(Array.isArray(r.gold_alt_passes) && r.gold_alt_passes.length >= 2) &&
-    !(isStr(r.adjudication) && r.adjudication.trim() !== '')).length
+  const noSecond = accepted.filter((r) => passState(r) !== 'settled').length
   add('two independent passes', noSecond === 0,
-    noSecond === 0 ? 'every accepted item has two passes or an adjudication'
-      : `${noSecond} accepted items with a single pass and no adjudication`)
+    noSecond === 0 ? 'every accepted item has two agreeing passes or an adjudication'
+      : `${noSecond} accepted items with a single pass, or disagreeing passes ` +
+        'and no adjudication')
 
   // Blocking findings still open against accepted items. An item's most recent
   // review is the one that counts: a blocking finding stays open until a later
@@ -593,9 +622,21 @@ function assess(items, reviews, reports) {
   const byStatus = {}
   for (const s of STATUSES) byStatus[s] = items.filter((r) => r.status === s).length
 
+  // Not criteria: work owed on items that are still in play. An item with one
+  // pass is waiting for the second-pass turn, and one with disagreeing passes is
+  // waiting for a seeking agent to adjudicate. Neither blocks the loop, and both
+  // block the items themselves, so the loop is told about them every round.
+  const inPlay = items.filter((r) =>
+    r.status === 'candidate' || r.status === 'needs-revision')
+  const pending = {
+    secondPass: inPlay.filter((r) => passState(r) === 'one-pass').length,
+    adjudication: inPlay.filter((r) => passState(r) === 'disagreeing').length,
+  }
+
   return {
     criteria,
     goalsMet: criteria.every((c) => c.met),
+    pending,
     counts: {
       items: items.length,
       byStatus,
@@ -637,6 +678,9 @@ function printText(report) {
       .map((s) => `${c.byStatus[s]} ${s}`).join(', '))
     out.push(`reviews: ${c.reviewRecords} records across ` +
       `${c.reviewRounds} reported rounds`)
+    const p = assessment.pending
+    out.push(`pending: ${p.secondPass} item(s) awaiting a second gold standard ` +
+      `pass, ${p.adjudication} awaiting adjudication`)
     out.push('')
     out.push('acceptance criteria')
     for (const cr of assessment.criteria) {
@@ -712,6 +756,37 @@ function selftest() {
     process.stdout.write('PASS blocking accept rejected\n')
   } else {
     process.stdout.write('FAIL blocking accept was allowed\n')
+    failures++
+  }
+
+  // Two passes that disagree are a legal candidate and an illegal accepted item.
+  // If a disagreement were a schema error the loop would stop dead the first
+  // time a blind second pass did its job, so the rule binds acceptance only.
+  const base = JSON.parse(readFileSync(join(dir, 'valid-item.jsonl'), 'utf8')
+    .split('\n').filter((l) => l.trim() !== '')[0])
+  const split = (over) => ({
+    ...base, adjudication: null,
+    gold_alt_passes: [
+      { author: 'pass-a', alt: base.gold_alt, rationale: 'First pass.' },
+      { author: 'pass-b', alt: 'Something else entirely', rationale: 'Second.' },
+    ],
+    ...over,
+  })
+  const asCandidate = validateItem(split({ status: 'candidate' }), 1, new Map(), 'inline')
+  const asAccepted = validateItem(split({ status: 'accepted' }), 1, new Map(), 'inline')
+  const asSettled = validateItem(split({ status: 'accepted',
+    adjudication: 'Pass A wins: the adjacent text does not name the destination.',
+  }), 1, new Map(), 'inline')
+  const states = [passState(split({})), passState({ ...base, gold_alt_passes: [
+    { author: 'pass-a', alt: 'x', rationale: 'r' }] }), passState(base)]
+  if (asCandidate.length === 0 && asSettled.length === 0 &&
+      asAccepted.some((e) => e.includes('disagreeing passes')) &&
+      states.join(',') === 'disagreeing,one-pass,settled') {
+    process.stdout.write('PASS disagreeing passes block acceptance only\n')
+  } else {
+    process.stdout.write('FAIL disagreeing passes: candidate ' +
+      `[${asCandidate.join('; ')}], accepted [${asAccepted.join('; ')}], ` +
+      `adjudicated [${asSettled.join('; ')}], states ${states.join(',')}\n`)
     failures++
   }
 

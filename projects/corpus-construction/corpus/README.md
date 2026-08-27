@@ -12,6 +12,10 @@ This directory holds the corpus itself, in plain text.
   bare validator run, and the history all agree on what the loop is working
   toward. Count targets scale with it; share targets do not.
 
+- `corrections.md`. Every change made to the corpus by a person rather than by a
+  tool, with what changed and why. Out-of-band edits should be rare; the normal
+  way to change an item is a review verdict and another round.
+
 Records are append-only. Items are never deleted, only given a new status.
 Rejected items stay in the file with their reason codes, because they are
 evidence about what does not belong in the corpus.
@@ -80,10 +84,16 @@ variants.
   alternative rejected. At least 40 characters, and a restatement of the answer
   does not qualify.
 - `gold_alt_passes`. Array of one or more independent pass objects, each with
-  `author`, `alt`, and `rationale`. Two passes with differing `alt` values
-  require an `adjudication`. An `accepted` item needs at least two passes.
+  `author`, `alt`, and `rationale`. The first, `pass-a`, is written by the
+  seeking agent. The second, `pass-b`, is written in its own turn by
+  [../directives/02-second-pass.md](../directives/02-second-pass.md) and merged
+  by `tools/second-pass.mjs`, the only thing that appends to this array. An
+  `accepted` item needs two passes that agree, or an `adjudication`.
 - `adjudication`. String, or `null`. Required when the passes disagree: which
-  reading wins, and why.
+  reading wins, and why. Disagreement is an ordinary state for a candidate and
+  an illegal one for an accepted item, so the validator only enforces this on
+  acceptance, and `tools/apply-verdicts.mjs` refuses to promote an item whose
+  passes disagree with nothing recorded.
 - `difficulty`. One of `trivial`, `standard`, `ambiguous`.
 - `dual_purpose`. Boolean. True when the item is functional and informative at
   once.
@@ -102,8 +112,10 @@ per line, one per item reviewed. Corpus records are never edited by the
 reviewer. After the round, `../tools/apply-verdicts.mjs` reads these records and
 writes the item statuses: `accept` becomes `accepted`, `revise` becomes
 `needs-revision`, `reject` becomes `rejected`. It applies a round all or
-nothing, and it refuses to promote an item this schema forbids, such as a leaky
-one or one with a single gold standard pass.
+nothing, and it refuses to promote an item this schema forbids: a leaky one, one
+with a single gold standard pass, or one whose two passes disagree with no
+adjudication recorded. An item waiting on an adjudication is `revise`, never
+`accept`.
 
 - `item_id`. The `id` of the item reviewed.
 - `round`. Integer, 1 or greater.
@@ -122,7 +134,7 @@ one or one with a single gold standard pass.
 ## Reason code vocabulary
 
 Use these codes verbatim. Adding a code means updating this list, the validator,
-and [../directives/02-adversarial-review.md](../directives/02-adversarial-review.md)
+and [../directives/03-adversarial-review.md](../directives/03-adversarial-review.md)
 together.
 
 - `CLEAN`. No defect found. The only code valid on an `accept` verdict.
@@ -149,8 +161,9 @@ together.
 - `NON-DISCRIMINATING`. Item cannot separate a capable model from a weak one.
 - `DUPLICATE`. Same icon, same role, same icon set as an accepted item.
 - `MISSING-FIELD`. A required field is absent or malformed.
-- `NO-SECOND-PASS`. Fewer than two independent gold standard passes, and no
-  adjudication.
+- `NO-SECOND-PASS`. Fewer than two independent gold standard passes and no
+  adjudication, or a `pass-b` that appears in no round's
+  `round-NN-second-pass.jsonl` and so cannot have been authored blind.
 - `LICENSE-UNCLEAR`. Provenance note is inadequate for citation.
 
 

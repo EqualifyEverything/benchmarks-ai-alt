@@ -3,10 +3,12 @@
 Build the corpus of functional images, page context, and gold standard alt text
 that the benchmark scores against.
 
-Status: round one has run. 12 items collected, of which 3 accepted, 4 sent back
-for revision, and 5 rejected, mostly for leakage. The machinery works end to
-end; the corpus is 3 items into a 250-item goal, and the round one artefacts are
-worth reading before round two.
+Status: round one has run. 12 items collected, 4 sent back for revision and 5
+rejected, mostly for leakage. Nothing is accepted yet: round one's three
+promotions were withdrawn because its second gold standard passes came from the
+same turn as the first, which is not independence. See
+[corpus/corrections.md](corpus/corrections.md), and the round one artefacts,
+before running round two.
 
 
 ## Getting started
@@ -61,8 +63,10 @@ and reading them is how you know what you are about to get.
   acceptance criteria that decide when the loop stops.
 - [directives/01-seek-functional-images.md](directives/01-seek-functional-images.md).
   What the seeking agent does each round.
-- [directives/02-adversarial-review.md](directives/02-adversarial-review.md).
-  What the reviewer does to its output.
+- [directives/02-second-pass.md](directives/02-second-pass.md). What the second
+  gold standard author does, in its own turn, without seeing the first answer.
+- [directives/03-adversarial-review.md](directives/03-adversarial-review.md).
+  What the reviewer does to all of it.
 
 If you disagree with anything in directive 00, change it now. It defines what
 finished means, and the loop will grind toward whatever it says. Those targets
@@ -91,9 +95,15 @@ Use `--agent claude` or `--agent codex` if that is your harness, or drop
 
 What happens, in order: the validator reports the current state, the seeking
 agent takes one turn and writes items and a run log, the validator checks that
-output, the reviewer judges every new candidate and writes verdicts and a
-report, `tools/apply-verdicts.mjs` turns those verdicts into statuses, and the
-validator reports again.
+output, `tools/second-pass.mjs` extracts the page context of every item holding
+a single gold standard pass, a second agent turn authors a blind second pass
+over that file alone and the tool merges it, the reviewer judges every new
+candidate and writes verdicts and a report, `tools/apply-verdicts.mjs` turns
+those verdicts into statuses, and the validator reports again.
+
+Three turns, not two. The second pass is separate because an agent that has just
+authored a gold standard cannot then author an independent one, and two passes
+from one turn agree by construction.
 
 Expect exit code 1, meaning the goals are not met. That is the normal result of
 round one: the criteria ask for hundreds of accepted items and a first round
@@ -103,15 +113,20 @@ be fetched and verified before it is recorded.
 
 ### 5. Read what it produced
 
-- `rounds/round-01-seek-prompt.md` and `rounds/round-01-review-prompt.md`.
-  Exactly what each agent was told, kept so a round can be reproduced, or
-  reproduced differently.
+- `rounds/round-01-seek-prompt.md`, `rounds/round-01-second-pass-prompt.md` and
+  `rounds/round-01-review-prompt.md`. Exactly what each agent was told, kept so
+  a round can be reproduced, or reproduced differently.
 - `rounds/round-01-seek.md`. Which coverage gap the seeking agent chose, which
   search strategies it used, and what it dropped and why. If it reports that a
   sub-type could not be found, that is a finding about the taxonomy rather than
   a failed round.
+- `rounds/round-01-second-pass-input.jsonl` and
+  `rounds/round-01-second-pass.jsonl`. What the second gold standard author was
+  shown, and what it concluded. Compare a few by hand: if the second passes read
+  like the first, independence is not working.
 - `corpus/functional-images.jsonl`. The items, one JSON object per line. Run
-  `node tools/validate.mjs` for counts against every target.
+  `node tools/validate.mjs` for counts against every target, including how many
+  items are waiting for a second pass or an adjudication.
 - `rounds/round-01-review.jsonl` and `rounds/round-01-report.md`. The per-item
   verdicts, the corpus-level findings, the accept and reject rates, and the
   `STATUS:` line the loop reads to decide whether to stop.
@@ -124,7 +139,8 @@ Then check three things by hand, because nothing here can check them for you:
   and it is the hardest to detect later.
 - Gold standards. Do you agree with them? Where you do not, the disagreement is
   worth more than the item, and it belongs in directive 00 so that later rounds
-  inherit it.
+  inherit it. Read the disagreements between the two passes first: they are
+  where the judgment is visible.
 - Reviewer bite. If the reviewer accepted nearly everything, it is not being
   adversarial enough. Its directive tells it to say so; check whether it did.
 
@@ -197,16 +213,22 @@ one turn, so any harness that can write files here and fetch pages can run it.
   and difficulty targets, collection constraints, and the acceptance criteria.
   Read this first. Every other file is bound by it.
 - `directives/01-seek-functional-images.md`. The seeking agent's directive.
-- `directives/02-adversarial-review.md`. The adversarial reviewer's directive.
-- `directives/03-loop.md`. How the rounds are sequenced and when to stop.
+- `directives/02-second-pass.md`. The blind second gold standard pass.
+- `directives/03-adversarial-review.md`. The adversarial reviewer's directive.
+- `directives/04-loop.md`. How the rounds are sequenced and when to stop.
 - `adapters/`. One small file per harness, plus the contract for adding another.
 - `corpus/README.md`. The item and review record schemas, and the reason code
   vocabulary.
 - `corpus/functional-images.jsonl`. The corpus. Created by the first round.
+- `corpus/corrections.md`. Every change made to the corpus by hand rather than
+  by a tool, with the reason.
 - `rounds/`. Per-round prompts, run logs, review records, and reports. The audit
   trail.
 - `tools/validate.mjs`. Enforces the schema, computes progress against every
   target, and decides whether the goals are met. No dependencies.
+- `tools/second-pass.mjs`. Extracts the page context for the second pass turn,
+  carrying no trace of the first answer, and merges the result back. The wall
+  between the two passes.
 - `tools/apply-verdicts.mjs`. Applies a review round's verdicts to the corpus,
   all or nothing, and refuses any promotion the specification forbids. The only
   thing in the project that changes an item's status.
@@ -224,6 +246,8 @@ one turn, so any harness that can write files here and fetch pages can run it.
     ./run.sh --target 100       goal of 100 accepted items, not 250
     ./run.sh                    loop until the goals are met, cap 10
     ./run.sh --prompt seek      print the next round's seeking prompt
+    ./run.sh --prompt second-pass  extract and print the second pass prompt
+    ./run.sh --merge-passes N   merge round N's second gold standard passes
     ./run.sh --prompt review    print the pending review prompt
     ./run.sh --apply N          apply round N verdicts after a hand-run round
     ./run.sh --help             every flag and every environment variable
@@ -248,14 +272,18 @@ Validate or promote by hand at any time:
     node tools/validate.mjs --selftest fixtures and gate logic
     node tools/apply-verdicts.mjs --round 1 --dry-run
     node tools/apply-verdicts.mjs --round 1
+    node tools/second-pass.mjs --extract --round 1
+    node tools/second-pass.mjs --apply --round 1
 
 
 ## Known limits
 
-- The two independent gold standard passes are only genuinely independent when
-  the harness can run the second pass without showing it the first. Where it
-  cannot, an item keeps a single pass, and the schema will not let it be
-  accepted.
+- Independence of the two gold standard passes rests on the second agent not
+  reading a file it is told not to read. The prompt and its input carry no first
+  answer, and each turn is a fresh session, so there is nothing to remember. But
+  the corpus file is on disk, and nothing here can stop an agent opening it.
+  What can be checked is checked: every `pass-b` must appear in a round's second
+  pass file, and the reviewer codes `NO-SECOND-PASS` when it does not.
 - The validator checks structure, targets, and internal consistency. It cannot
   check whether a gold standard is correct, or whether a page really says what
   an item claims. Only the reviewer refetching the page can do that.

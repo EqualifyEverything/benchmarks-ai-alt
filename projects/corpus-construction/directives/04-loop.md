@@ -1,4 +1,4 @@
-# Directive 03: The loop
+# Directive 04: The loop
 
 Seek, review, repeat, until the corpus meets the acceptance criteria in
 [00-corpus-goals.md](00-corpus-goals.md).
@@ -22,17 +22,30 @@ what follows is what it does and why.
    thinnest coverage gap, then records new candidates.
 3. Validate again. Same gate. This catches the round's own output before the
    reviewer wastes effort on it.
-4. Review. Run [02-adversarial-review.md](02-adversarial-review.md). It judges
+4. Second pass. Run `node ../tools/second-pass.mjs --extract --round N`, which
+   writes the page context of every item still holding one gold standard pass,
+   and nothing that hints at what that pass said. Then run
+   [02-second-pass.md](02-second-pass.md) in its own turn, on that file alone,
+   and merge the result with `--apply --round N`. Skip the turn when the extract
+   finds nothing to do.
+
+   This step is a separate turn because independence cannot survive being in the
+   same one. An agent that has just authored a gold standard cannot author a
+   second without reading the first, so a `pass-b` written in the seeking turn
+   is agreement by construction. Disagreements that come out of here are the
+   point: they are real, and the next round's seeking agent adjudicates them.
+5. Review. Run [03-adversarial-review.md](03-adversarial-review.md). It judges
    every candidate, writes review records, and writes the round report with its
    status line. It does not touch the corpus.
-5. Apply the verdicts. Run `node ../tools/apply-verdicts.mjs --round N`. This is
+6. Apply the verdicts. Run `node ../tools/apply-verdicts.mjs --round N`. This is
    the only step that changes an item's status, and it is deterministic: accept
    becomes `accepted`, revise becomes `needs-revision`, reject becomes
    `rejected`. Nothing is written unless every record can be applied, so a
    malformed review round stops the loop instead of half-updating the corpus.
-   The tool refuses to promote an item the specification forbids, such as a
-   leaky one or one with a single gold standard pass, even on an `accept`.
-6. Validate a third time, and read the exit code. Zero means every acceptance
+   The tool refuses to promote an item the specification forbids, even on an
+   `accept`: a leaky one, one with a single gold standard pass, or one whose two
+   passes disagree with no adjudication recorded.
+7. Validate a third time, and read the exit code. Zero means every acceptance
    criterion is met, and the loop stops. Anything else means another round.
 
 
@@ -42,8 +55,8 @@ The loop stops when `tools/validate.mjs` exits zero, which requires all of:
 
 - Every coverage, difficulty, discrimination, and diversity target in directive
   00 is met.
-- Every accepted item has two independent gold standard passes, or a recorded
-  adjudication.
+- Every accepted item has two independent gold standard passes that agree, or a
+  recorded adjudication of the disagreement.
 - At least 95 percent of accepted items carry no open blocking finding in the
   most recent review of that item. A blocking finding does not expire because a
   later round happened to review other items.

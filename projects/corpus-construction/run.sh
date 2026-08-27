@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Run the corpus construction loop: seek, then adversarially review, repeat
-# until the acceptance criteria in directives/00-corpus-goals.md are met.
+# Run the corpus construction loop: seek, take a blind second gold standard pass,
+# then adversarially review, and repeat until the acceptance criteria in
+# directives/00-corpus-goals.md are met.
 #
 #   ./run.sh                  run until the goals are met or the cap is hit
 #   ./run.sh --agent pi       run the rounds with adapters/pi.sh
@@ -8,6 +9,7 @@
 #   ./run.sh --target 100     work toward 100 accepted items, not 250
 #   ./run.sh --status         report progress and exit, running no agents
 #   ./run.sh --prompt seek    print the next round's prompt and exit
+#   ./run.sh --merge-passes 3 merge round 3's second gold standard passes
 #   ./run.sh --apply 3        apply round 3 verdicts, after a hand-run round
 #   ./run.sh --selftest       exercise the loop with a stub agent, no API calls
 #
@@ -28,8 +30,9 @@
 # standard input is left empty.
 #
 # For a harness with no command line at all, including a chat window, run
-# ./run.sh --prompt seek, paste what it prints, then ./run.sh --apply N when the
-# round's files are written. The loop does not care who wrote them.
+# ./run.sh --prompt seek, paste what it prints, then --prompt second-pass and
+# --merge-passes N, then --prompt review and --apply N. The loop does not care
+# who wrote the files, only that each role was a separate turn.
 #
 # What a harness must be able to do: read and write files under this project,
 # and retrieve web pages, either with a fetch tool or with curl in a shell. Web
@@ -54,6 +57,7 @@ CORPUS="$PROJECT/corpus/functional-images.jsonl"
 ROUNDS="$PROJECT/rounds"
 VALIDATE="$PROJECT/tools/validate.mjs"
 APPLY="$PROJECT/tools/apply-verdicts.mjs"
+SECOND="$PROJECT/tools/second-pass.mjs"
 
 ADAPTERS="${ADAPTERS:-$PROJECT/adapters}"
 
@@ -67,6 +71,7 @@ AGENT_NAME=""
 AGENT_LABEL=""
 ROLE_ARG=""
 APPLY_ROUND=""
+MERGE_ROUND=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -78,7 +83,8 @@ while [ $# -gt 0 ]; do
     --next-round) MODE=next-round; shift ;;
     --prompt) MODE=prompt; ROLE_ARG="${2:-}"; shift; shift ;;
     --apply) MODE=apply; APPLY_ROUND="${2:-}"; shift; shift ;;
-    -h|--help) sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --merge-passes) MODE=merge; MERGE_ROUND="${2:-}"; shift; shift ;;
+    -h|--help) sed -n '2,51p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "run.sh: unknown argument \"$1\"" >&2; exit 3 ;;
   esac
 done
@@ -116,14 +122,21 @@ fi
 
 if [ "$MODE" = prompt ]; then
   case "$ROLE_ARG" in
-    seek|review) ;;
-    *) echo "run.sh: --prompt takes seek or review" >&2; exit 3 ;;
+    seek|second-pass|review) ;;
+    *) echo "run.sh: --prompt takes seek, second-pass or review" >&2; exit 3 ;;
   esac
 fi
 
 if [ "$MODE" = apply ]; then
   case "$APPLY_ROUND" in
     ''|*[!0-9]*|0) echo "run.sh: --apply needs the round number to apply" >&2
+      exit 3 ;;
+  esac
+fi
+
+if [ "$MODE" = merge ]; then
+  case "$MERGE_ROUND" in
+    ''|*[!0-9]*|0) echo "run.sh: --merge-passes needs the round number" >&2
       exit 3 ;;
   esac
 fi
@@ -255,6 +268,7 @@ prompt_file() {
 # what the corpus looks like right now.
 write_prompt() {
   directive="$1"; round="$2"; role="$3"; status_text="$4"; slug="$5"
+  extra="${6:-}"
   file="$(prompt_file "$round" "$slug")"
   mkdir -p "$ROUNDS"
   cat > "$file" <<PROMPT
@@ -273,7 +287,7 @@ This work needs real web pages. Use whatever retrieval your tools give you: a
 fetch or search tool if you have one, otherwise curl in a shell. Record nothing
 you have not retrieved yourself.
 
-Current corpus status from tools/validate.mjs:
+${extra}Current corpus status from tools/validate.mjs:
 
 ${status_text}
 
@@ -281,6 +295,17 @@ Do the work now. Do not ask for confirmation, and do not stop to summarise
 before you have written your output files.
 PROMPT
   printf '%s\n' "$file"
+}
+
+# The extra paragraph for the second pass turn. The whole point of that turn is
+# that it works from the extracted context and not from the corpus, so the prompt
+# says so as well as the directive.
+second_pass_extra() {
+  printf '%s\n' "The items to work on are in rounds/round-$(printf '%02d' "$1")-second-pass-input.jsonl, one per"
+  printf '%s\n' "line. That file is your whole input. Do not open the corpus file or the"
+  printf '%s\n' "seeking agent's log for this round: they hold the first pass, and reading"
+  printf '%s\n' "either destroys the independence this turn exists to create."
+  printf '\n'
 }
 
 # Run one directive as one agent turn.
@@ -291,7 +316,8 @@ PROMPT
 # {prompt} or {prompt_file} placeholder in AGENT_CMD or AGENT_FLAGS.
 run_directive() {
   directive="$1"; round="$2"; role="$3"; status_text="$4"; slug="$5"
-  file="$(write_prompt "$directive" "$round" "$role" "$status_text" "$slug")"
+  file="$(write_prompt "$directive" "$round" "$role" "$status_text" "$slug" \
+    "${6:-}")"
 
   argv=()
   placeholder=no
@@ -354,8 +380,40 @@ apply_round() {
   esac
 }
 
+# Write the blind second pass input for a round. Returns 0 when there is work to
+# do, 1 when no item is waiting for a second pass, and stops the run if the tool
+# refuses. Every message goes to standard error so --prompt can print a prompt on
+# standard output and nothing else.
+extract_passes() {
+  node "$SECOND" --extract --round "$1" --corpus "$CORPUS" --rounds "$ROUNDS" >&2
+  rc=$?
+  case $rc in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) say "Refused to extract round $1 second pass input, see above. Stopping." >&2
+       exit 2 ;;
+  esac
+}
+
+# Merge a round's second passes into the corpus. Like the verdicts, this is the
+# tool's job and not an agent's: the agent writes a file and this decides whether
+# it can be trusted.
+merge_passes() {
+  say "merging round $1 second gold standard passes"
+  node "$SECOND" --apply --round "$1" --corpus "$CORPUS" --rounds "$ROUNDS"
+  case $? in
+    0|1) ;;
+    *) say "Refused to merge round $1 second passes, see above. Stopping."
+       exit 2 ;;
+  esac
+}
+
 case "$MODE" in
   status) check; exit $? ;;
+  merge)
+    merge_passes "$MERGE_ROUND"
+    rule
+    check; exit $? ;;
   next-round) next_round; exit 0 ;;
   prompt)
     status_text="$(check 2>&1)"
@@ -363,15 +421,30 @@ case "$MODE" in
       round="$(next_round)"
       file="$(write_prompt 01-seek-functional-images.md "$round" \
         "seeking agent" "$status_text" seek)"
+    elif [ "$ROLE_ARG" = second-pass ]; then
+      round="$(pending_review_round)"
+      if ! extract_passes "$round"; then
+        say "Nothing is waiting for a second gold standard pass, so this turn" >&2
+        say "can be skipped. Next: ./run.sh --prompt review" >&2
+        exit 0
+      fi
+      file="$(write_prompt 02-second-pass.md "$round" \
+        "second gold standard author" "$status_text" second-pass \
+        "$(second_pass_extra "$round")")"
     else
       round="$(pending_review_round)"
-      file="$(write_prompt 02-adversarial-review.md "$round" \
+      file="$(write_prompt 03-adversarial-review.md "$round" \
         "adversarial reviewer" "$status_text" review)"
     fi
     say "Round $round, $ROLE_ARG. Prompt written to $file" >&2
     say "Give this to any agent that can read and write files here:" >&2
     say "" >&2
     cat "$file"
+    if [ "$ROLE_ARG" = second-pass ]; then
+      say "" >&2
+      say "Give it a fresh session, with no memory of the seeking turn. When it" >&2
+      say "has written its file: ./run.sh --merge-passes $round" >&2
+    fi
     if [ "$ROLE_ARG" = review ]; then
       say "" >&2
       say "When it has written its files: ./run.sh --apply $round" >&2
@@ -399,12 +472,14 @@ if [ "$MODE" = selftest ]; then
   rule
   node "$APPLY" --selftest || exit 3
   rule
+  node "$SECOND" --selftest || exit 3
+  rule
 
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   proj="$tmp/project"
   mkdir -p "$proj/corpus" "$proj/rounds" "$proj/tools" "$proj/directives" "$tmp/bin"
-  cp "$VALIDATE" "$APPLY" "$proj/tools/"
+  cp "$VALIDATE" "$APPLY" "$SECOND" "$proj/tools/"
   cp -R "$PROJECT/tools/fixtures" "$proj/tools/"
   cp "$0" "$proj/run.sh"
   cp "$PROJECT"/directives/*.md "$proj/directives/"
@@ -421,7 +496,41 @@ prompt="$(cat)"
 round="$(printf '%s' "$prompt" | sed -n 's/.*running round \([0-9][0-9]*\) .*/\1/p' | head -1)"
 [ -n "$round" ] || round=1
 nn="$(printf '%02d' "$round")"
+# The second pass branch is tested first because its prompt mentions the seeking
+# agent's log, in telling it not to read it. Real adapters do not sniff prompts;
+# they are told the role in ROLE.
 case "$prompt" in
+  *"second gold standard author"*)
+    printf 'stub second pass round %s\n' "$round" \
+      > "rounds/round-${nn}-second-pass.md"
+    # The stub reads the corpus to copy the first pass, so its answers agree and
+    # the round can be promoted. A real second pass agent must never do this: the
+    # whole point of the turn is that it has not seen the first answer.
+    node -e '
+      const fs = require("fs")
+      const [input, corpus] = process.argv.slice(1)
+      const gold = new Map()
+      if (fs.existsSync(corpus)) {
+        for (const line of fs.readFileSync(corpus, "utf8").split("\n")) {
+          if (line.trim() === "") continue
+          const item = JSON.parse(line)
+          gold.set(item.id, item.gold_alt)
+        }
+      }
+      const out = []
+      for (const line of fs.readFileSync(input, "utf8").split("\n")) {
+        if (line.trim() === "") continue
+        const rec = JSON.parse(line)
+        out.push(JSON.stringify({
+          item_id: rec.item_id,
+          alt: gold.get(rec.item_id) ?? "Stub second pass",
+          rationale: "Stub second pass, agreeing so the loop can be tested.",
+        }))
+      }
+      process.stdout.write(out.length ? out.join("\n") + "\n" : "")
+    ' "rounds/round-${nn}-second-pass-input.jsonl" \
+      corpus/functional-images.jsonl > "rounds/round-${nn}-second-pass.jsonl"
+    ;;
   *"seeking agent"*)
     printf 'stub seek round %s\n' "$round" > "rounds/round-${nn}-seek.md"
     ;;
@@ -684,6 +793,101 @@ GEN
     fail "--apply exited $rc with $promoted accepted: $out"
   fi
 
+  # 13. An item holding one gold standard pass gets a second one from its own
+  #     turn, on input that carries no trace of the first. This is the round
+  #     sequence the two-pass rule depends on.
+  rm -f "$proj"/rounds/*
+  node -e '
+    const fs = require("fs")
+    const [src, dest] = process.argv.slice(1)
+    const rows = fs.readFileSync(src, "utf8").trim().split("\n").map(JSON.parse)
+    rows[0].gold_alt_passes = [rows[0].gold_alt_passes[0]]
+    fs.writeFileSync(dest, rows.map((r) => JSON.stringify(r)).join("\n") + "\n")
+  ' "$proj/tools/fixtures/valid-item.jsonl" \
+    "$proj/corpus/functional-images.jsonl"
+  out="$(cd "$proj" && AGENT_CMD="$tmp/bin/stub-agent" AGENT_FLAGS= \
+    ./run.sh --max-rounds 1 2>&1)"; rc=$?
+  input="$proj/rounds/round-01-second-pass-input.jsonl"
+  passes="$(node -e '
+    const fs = require("fs")
+    const item = fs.readFileSync(process.argv[1], "utf8").trim().split("\n")
+      .map(JSON.parse).find((r) => r.id === "fi-0001")
+    process.stdout.write(item.gold_alt_passes.map((p) => p.author).join(","))
+  ' "$proj/corpus/functional-images.jsonl")"
+  if [ "$rc" -eq 1 ] && [ -s "$input" ] && \
+      [ -s "$proj/rounds/round-01-second-pass.jsonl" ] && \
+      [ "$passes" = "pass-a,pass-b" ] && \
+      ! grep -q 'gold_alt\|difficulty' "$input"; then
+    pass "a one-pass item gets a blind second pass in its own turn"
+  else
+    fail "second pass case exited $rc with passes \"$passes\""
+    say "$out"
+  fi
+
+  # 13b. The extracted input holds the context and not the answer. If this ever
+  #      leaks the first pass, every two-pass claim in the corpus is void.
+  leaked="$(node -e '
+    const fs = require("fs")
+    const rec = JSON.parse(fs.readFileSync(process.argv[1], "utf8")
+      .trim().split("\n")[0])
+    const allowed = ["item_id", "page_url", "image_url", "implementation",
+      "element_role", "element_html", "surrounding_text", "destination"]
+    process.stdout.write(Object.keys(rec)
+      .filter((k) => !allowed.includes(k)).join(",") || "none")
+  ' "$input")"
+  [ "$leaked" = "none" ] && pass "second pass input carries context only" \
+    || fail "second pass input also carried $leaked"
+
+  # 14. A second pass agent that writes a log but no passes stops the loop. The
+  #     items it skipped cannot be accepted, so continuing would waste a review.
+  rm -f "$proj"/rounds/*
+  node -e '
+    const fs = require("fs")
+    const [src, dest] = process.argv.slice(1)
+    const rows = fs.readFileSync(src, "utf8").trim().split("\n").map(JSON.parse)
+    rows[0].gold_alt_passes = [rows[0].gold_alt_passes[0]]
+    fs.writeFileSync(dest, rows.map((r) => JSON.stringify(r)).join("\n") + "\n")
+  ' "$proj/tools/fixtures/valid-item.jsonl" \
+    "$proj/corpus/functional-images.jsonl"
+  cat > "$tmp/bin/lazy-second" <<'LAZY'
+#!/usr/bin/env bash
+set -u
+prompt="$(cat)"
+round="$(printf '%s' "$prompt" | sed -n 's/.*running round \([0-9][0-9]*\) .*/\1/p' | head -1)"
+nn="$(printf '%02d' "${round:-1}")"
+case "$prompt" in
+  *"second gold standard author"*)
+    printf 'wrote a log and nothing else\n' > "rounds/round-${nn}-second-pass.md" ;;
+  *"seeking agent"*) printf 'stub seek\n' > "rounds/round-${nn}-seek.md" ;;
+  *) exit 1 ;;
+esac
+LAZY
+  chmod +x "$tmp/bin/lazy-second"
+  out="$(cd "$proj" && AGENT_CMD="$tmp/bin/lazy-second" AGENT_FLAGS= \
+    ./run.sh --max-rounds 1 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'log but no passes'; then
+    pass "a second pass turn that writes no passes stops the loop"
+  else
+    fail "lazy second pass exited $rc"
+    say "$out"
+  fi
+
+  # 15. The second pass can be run by hand, and the prompt tells the operator to
+  #     use a fresh session and how to merge afterwards.
+  rm -f "$proj"/rounds/*
+  printf 'hand-run\n' > "$proj/rounds/round-01-seek.md"
+  out="$(cd "$proj" && ./run.sh --prompt second-pass 2>&1 >/dev/null)"
+  prompt_out="$(cd "$proj" && ./run.sh --prompt second-pass 2>/dev/null)"
+  if [ -s "$proj/rounds/round-01-second-pass-input.jsonl" ] && \
+      printf '%s' "$prompt_out" | grep -q 'second gold standard author' && \
+      printf '%s' "$prompt_out" | grep -q 'Do not open the corpus file' && \
+      printf '%s' "$out" | grep -q 'fresh session' && \
+      printf '%s' "$out" | grep -q 'merge-passes 1'; then
+    pass "--prompt second-pass extracts, prints and says how to merge"
+  else
+    fail "--prompt second-pass: $out"
+  fi
+
   # 16. A stipulated goal is recorded, scales the count targets, and is picked
   #     up by later invocations that do not repeat the flag. A goal that only
   #     lived in one shell command would silently revert to 250 next round.
@@ -755,8 +959,39 @@ while [ "$round" -le "$last" ]; do
     exit 2
   fi
 
+  # The second gold standard pass is its own turn, on its own input, because an
+  # agent that has just written a gold standard cannot then author an independent
+  # one. If nothing is waiting for a second pass, the turn is skipped.
+  if extract_passes "$round"; then
+    say ""
+    say "running the second gold standard pass"
+    if ! run_directive 02-second-pass.md "$round" \
+        "second gold standard author" "$status_text" second-pass \
+        "$(second_pass_extra "$round")"; then
+      say "second pass agent failed in round $round"
+      exit 2
+    fi
+    require_artefact "$ROUNDS/round-$nn-second-pass.md" "second pass agent"
+    if [ ! -s "$ROUNDS/round-$nn-second-pass.jsonl" ]; then
+      say ""
+      say "The second pass agent wrote a log but no passes. Every item in"
+      say "rounds/round-$nn-second-pass-input.jsonl needs one, and without them the"
+      say "items cannot be accepted. Read its log before running again."
+      exit 2
+    fi
+    merge_passes "$round"
+    status_text="$(check)"; rc=$?
+    if [ "$rc" -eq 2 ] && [ -f "$CORPUS" ]; then
+      say "$status_text"
+      say ""
+      say "The merged second passes left schema errors behind. Stopping."
+      exit 2
+    fi
+    say ""
+  fi
+
   say "running the adversarial reviewer"
-  if ! run_directive 02-adversarial-review.md "$round" \
+  if ! run_directive 03-adversarial-review.md "$round" \
       "adversarial reviewer" "$status_text" review; then
     say "adversarial reviewer failed in round $round"
     exit 2

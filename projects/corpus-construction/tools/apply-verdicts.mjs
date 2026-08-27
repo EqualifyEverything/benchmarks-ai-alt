@@ -39,8 +39,16 @@ function blocksAcceptance(item) {
   const passes = Array.isArray(item.gold_alt_passes) ? item.gold_alt_passes : []
   const adjudicated = typeof item.adjudication === 'string' &&
     item.adjudication.trim() !== ''
-  if (passes.length < 2 && !adjudicated) {
+  if (adjudicated) return null
+  if (passes.length < 2) {
     return 'the item has a single gold standard pass and no adjudication'
+  }
+  const alts = new Set(passes
+    .filter((p) => p !== null && typeof p === 'object')
+    .map((p) => p.alt)
+    .filter((a) => typeof a === 'string'))
+  if (alts.size > 1) {
+    return 'its gold standard passes disagree and there is no adjudication'
   }
   return null
 }
@@ -174,6 +182,31 @@ function selftest() {
   check('refuses to accept a single-pass item',
     r.errors.length === 1 && r.errors[0].includes('single gold standard pass'),
     r.errors.join('; ') || 'no error raised')
+
+  // Disagreeing passes are a legal candidate state, and never an accepted one.
+  // The disagreement is what a blind second pass exists to surface, so it has to
+  // survive in the corpus until a seeking agent adjudicates it.
+  write(corpusPath, [item('fi-0001', {
+    gold_alt_passes: [{ author: 'pass-a', alt: 'Search', rationale: 'r' },
+      { author: 'pass-b', alt: '', rationale: 'r' }],
+  })])
+  write(reviewPath, [{ item_id: 'fi-0001', round: 1, verdict: 'accept' }])
+  r = apply(corpusPath, reviewPath, 1)
+  check('refuses to accept an unadjudicated disagreement',
+    r.errors.length === 1 && r.errors[0].includes('disagree'),
+    r.errors.join('; ') || 'no error raised')
+
+  // With the disagreement adjudicated, the same item promotes.
+  write(corpusPath, [item('fi-0001', {
+    adjudication: 'Adjacent text repeats the label, so the empty pass wins.',
+    gold_alt_passes: [{ author: 'pass-a', alt: 'Search', rationale: 'r' },
+      { author: 'pass-b', alt: '', rationale: 'r' }],
+  })])
+  write(reviewPath, [{ item_id: 'fi-0001', round: 1, verdict: 'accept' }])
+  r = apply(corpusPath, reviewPath, 1)
+  check('accepts an adjudicated disagreement',
+    r.errors.length === 0 && r.changed === 1,
+    r.errors.join('; ') || `changed ${r.changed}`)
 
   // Round mismatch is refused rather than applied to the wrong round.
   write(corpusPath, [item('fi-0001')])
