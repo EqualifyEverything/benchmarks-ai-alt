@@ -135,8 +135,9 @@ corpus file and the two most recent review reports:
 3. Every source diversity target is met.
 4. Every accepted item has two agreeing independent gold standards, or a
    recorded adjudication.
-5. At least 95 percent of accepted items carry no unresolved blocking finding
-   from the most recent adversarial review round.
+5. At least 95 percent of accepted items carry no unresolved blocking
+   finding. A blocking finding stays open until a later review of that same item
+   clears it, so it cannot age out simply because the loop moved on.
 6. Two consecutive adversarial review rounds have produced zero new blocking
    corpus-level findings.
 

@@ -24,8 +24,15 @@ what follows is what it does and why.
    reviewer wastes effort on it.
 4. Review. Run [02-adversarial-review.md](02-adversarial-review.md). It judges
    every candidate, writes review records, and writes the round report with its
-   status line.
-5. Validate a third time, and read the exit code. Zero means every acceptance
+   status line. It does not touch the corpus.
+5. Apply the verdicts. Run `node ../tools/apply-verdicts.mjs --round N`. This is
+   the only step that changes an item's status, and it is deterministic: accept
+   becomes `accepted`, revise becomes `needs-revision`, reject becomes
+   `rejected`. Nothing is written unless every record can be applied, so a
+   malformed review round stops the loop instead of half-updating the corpus.
+   The tool refuses to promote an item the specification forbids, such as a
+   leaky one or one with a single gold standard pass, even on an `accept`.
+6. Validate a third time, and read the exit code. Zero means every acceptance
    criterion is met, and the loop stops. Anything else means another round.
 
 
@@ -37,8 +44,9 @@ The loop stops when `tools/validate.mjs` exits zero, which requires all of:
   00 is met.
 - Every accepted item has two independent gold standard passes, or a recorded
   adjudication.
-- At least 95 percent of accepted items carry no open blocking finding from the
-  most recent review round.
+- At least 95 percent of accepted items carry no open blocking finding in the
+  most recent review of that item. A blocking finding does not expire because a
+  later round happened to review other items.
 - The two most recent round reports both state
   `STATUS: new-blocking-findings=no`.
 
@@ -91,6 +99,9 @@ are the substance; `run.sh` is a convenience that adds nothing but sequencing.
   not a reason to declare completion.
 - Never let one agent play both roles in a round. The separation between
   collecting and judging is the only real check in this design.
+- Never promote an item by hand. If a status looks wrong, fix the review record
+  and re-run `tools/apply-verdicts.mjs`, so the corpus and the audit trail
+  cannot disagree.
 - Never discard a round's artefacts. `rounds/` is the audit trail, and a corpus
   whose construction cannot be audited cannot be defended.
 - Never edit directive 00 to make the criteria reachable. Raise the conflict

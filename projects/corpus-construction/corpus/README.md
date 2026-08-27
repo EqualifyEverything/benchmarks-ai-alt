@@ -29,8 +29,10 @@ variants.
 - `id`. String matching `fi-` followed by four digits, for example `fi-0001`.
   Unique across the file.
 - `status`. One of `candidate`, `accepted`, `needs-revision`, `rejected`.
-  Seeking agents may only write `candidate`, `needs-revision`, or `rejected`.
-  Only adversarial review promotes an item to `accepted`.
+  Written by `../tools/apply-verdicts.mjs` from the review records, and by
+  nothing else. The seeking agent writes `candidate` on a new item, and may
+  return a `needs-revision` item to `candidate` once it has applied the required
+  change. No agent writes `accepted`.
 - `round_added`. Integer, 1 or greater. The round that first recorded the item.
 - `category`. Integer 1 through 5, matching the taxonomy categories in the
   repository [README.md](../../../README.md).
@@ -90,7 +92,11 @@ variants.
 
 Written by adversarial review to `../rounds/round-NN-review.jsonl`, one object
 per line, one per item reviewed. Corpus records are never edited by the
-reviewer.
+reviewer. After the round, `../tools/apply-verdicts.mjs` reads these records and
+writes the item statuses: `accept` becomes `accepted`, `revise` becomes
+`needs-revision`, `reject` becomes `rejected`. It applies a round all or
+nothing, and it refuses to promote an item this schema forbids, such as a leaky
+one or one with a single gold standard pass.
 
 - `item_id`. The `id` of the item reviewed.
 - `round`. Integer, 1 or greater.

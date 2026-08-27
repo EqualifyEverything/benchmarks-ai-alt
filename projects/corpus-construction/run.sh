@@ -29,6 +29,7 @@ PROJECT="$(cd "$(dirname "$0")" && pwd)"
 CORPUS="$PROJECT/corpus/functional-images.jsonl"
 ROUNDS="$PROJECT/rounds"
 VALIDATE="$PROJECT/tools/validate.mjs"
+APPLY="$PROJECT/tools/apply-verdicts.mjs"
 
 AGENT_CMD="${AGENT_CMD:-claude}"
 AGENT_FLAGS="${AGENT_FLAGS--p --permission-mode acceptEdits}"
@@ -110,12 +111,14 @@ esac
 if [ "$MODE" = selftest ]; then
   node "$VALIDATE" --selftest || exit 3
   rule
+  node "$APPLY" --selftest || exit 3
+  rule
 
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   proj="$tmp/project"
   mkdir -p "$proj/corpus" "$proj/rounds" "$proj/tools" "$proj/directives" "$tmp/bin"
-  cp "$VALIDATE" "$proj/tools/"
+  cp "$VALIDATE" "$APPLY" "$proj/tools/"
   cp -R "$PROJECT/tools/fixtures" "$proj/tools/"
   cp "$0" "$proj/run.sh"
   cp "$PROJECT"/directives/*.md "$proj/directives/"
@@ -152,7 +155,7 @@ case "$prompt" in
         for (const line of fs.readFileSync(file, "utf8").split("\n")) {
           if (line.trim() === "") continue
           const item = JSON.parse(line)
-          if (item.status !== "accepted") continue
+          if (item.status === "rejected") continue
           out.push(JSON.stringify({
             item_id: item.id, round: Number(round), verdict: "accept",
             reason_codes: ["CLEAN"],
@@ -265,6 +268,13 @@ GEN
     say "$out"
   fi
 
+  # 4b. Verdicts were applied: the candidate item was promoted by the tool, not
+  #     by either agent.
+  promoted="$(grep -c '"status":"accepted"' \
+    "$proj/corpus/functional-images.jsonl" || true)"
+  [ "$promoted" -eq 2 ] && pass "verdicts applied, candidate promoted to accepted" \
+    || fail "expected 2 accepted items after promotion, found $promoted"
+
   # 5. Schema errors stop the loop rather than feeding junk to the reviewer.
   rm -f "$proj"/rounds/*
   cp "$proj/tools/fixtures/invalid-items.jsonl" "$proj/corpus/functional-images.jsonl"
@@ -341,12 +351,33 @@ while [ "$round" -le "$last" ]; do
     exit 2
   fi
 
+  # Statuses change here and nowhere else. The seeking agent may not promote its
+  # own work and the reviewer may not touch the corpus, so the verdicts are
+  # applied mechanically from the review records.
+  say "applying round $round verdicts"
+  node "$APPLY" --round "$round" --corpus "$CORPUS" --rounds "$ROUNDS"
+  case $? in
+    0) ;;
+    1) say "No verdicts to apply in round $round. The reviewer wrote no usable"
+       say "records, which is a problem with the round, not a reason to continue."
+       exit 2 ;;
+    *) say "Refused to apply round $round verdicts, see above. Stopping."
+       exit 2 ;;
+  esac
+
   rule
-  if check; then
+  check; rc=$?
+  if [ "$rc" -eq 0 ]; then
     rule
     say "Goals met after round $round. The corpus satisfies every acceptance"
     say "criterion in directives/00-corpus-goals.md."
     exit 0
+  fi
+  if [ "$rc" -eq 2 ]; then
+    say ""
+    say "The round left schema errors behind, listed above. Stopping rather than"
+    say "starting another round on records the validator rejects."
+    exit 2
   fi
 
   round=$((round + 1))

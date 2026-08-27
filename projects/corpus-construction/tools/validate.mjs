@@ -503,14 +503,21 @@ function assess(items, reviews, reports) {
     noSecond === 0 ? 'every accepted item has two passes or an adjudication'
       : `${noSecond} accepted items with a single pass and no adjudication`)
 
-  // Blocking findings open against accepted items, from the latest round only.
+  // Blocking findings still open against accepted items. An item's most recent
+  // review is the one that counts: a blocking finding stays open until a later
+  // round says otherwise, so it cannot age out of the gate just by the corpus
+  // moving on to another round.
   const latestRound = reviews.reduce((max, r) =>
     isInt(r.round) && r.round > max ? r.round : max, 0)
-  const acceptedIds = new Set(accepted.map((r) => r.id))
-  const blockedIds = new Set(reviews
-    .filter((r) => r.round === latestRound && r.blocking === true &&
-      acceptedIds.has(r.item_id))
-    .map((r) => r.item_id))
+  const latestForItem = new Map()
+  for (const r of reviews) {
+    if (!isStr(r.item_id) || !isInt(r.round)) continue
+    const held = latestForItem.get(r.item_id)
+    if (held === undefined || r.round >= held.round) latestForItem.set(r.item_id, r)
+  }
+  const blockedIds = new Set(accepted
+    .filter((item) => latestForItem.get(item.id)?.blocking === true)
+    .map((item) => item.id))
   const clean = total - blockedIds.size
   add('items clean in latest review',
     total > 0 && latestRound >= 1 && pct(clean, total) >= TARGETS.cleanItemShare,
@@ -781,8 +788,15 @@ function main(argv) {
       const path = join(roundsDir, name)
       const parsed = readJsonl(path)
       schemaErrors.push(...parsed.errors)
+      const fileRound = roundNumber(name)
       for (const { line, value } of parsed.rows) {
         schemaErrors.push(...validateReview(value, line, path))
+        // A record filed under the wrong round would be applied to the wrong
+        // round and would skew the gate, so the file name is authoritative.
+        if (isInt(value.round) && value.round !== fileRound) {
+          schemaErrors.push(`${path}:${line}: \`round\` is ${value.round} but ` +
+            `the file name says round ${fileRound}`)
+        }
         reviews.push(value)
       }
     }

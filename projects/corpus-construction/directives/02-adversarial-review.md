@@ -190,8 +190,13 @@ consequential thing you write. Do not write `no` to be agreeable.
 
 ## Rules you do not break
 
-- Never edit the corpus file. You write reviews; the seeking agent applies them.
-  Keeping those roles separate is what makes the audit trail worth having.
+- Never edit the corpus file. You write verdicts, and
+  `tools/apply-verdicts.mjs` writes the statuses from them after your round.
+  Your verdict is binding and mechanical, which is exactly why the evidence
+  statement matters: it is the only record of why an item was promoted.
+  The tool will still refuse to promote an item that the schema forbids, such as
+  a leaky one or one with a single gold standard pass, so an accept on such an
+  item stops the loop rather than corrupting the corpus.
 - Never accept an item whose provenance you did not check yourself.
 - Never promote an item you cannot explain the gold standard for.
 - Never soften a blocking finding to help the loop terminate. The loop

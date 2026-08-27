@@ -30,9 +30,10 @@ Two agents, run in a loop, with a mechanical stop condition.
   two consecutive review rounds that surface no new blocking findings.
 
 Neither agent can declare the work finished. The seeking agent cannot promote
-its own items to accepted, and the reviewer cannot edit the corpus. That
-separation is the only real check in the design, so the directives enforce it
-explicitly.
+its own items to accepted, and the reviewer cannot edit the corpus. Statuses are
+written by `tools/apply-verdicts.mjs`, which reads the reviewer's verdicts and
+applies them mechanically after each review round. That separation is the only
+real check in the design, so the directives enforce it explicitly.
 
 
 ## Files
@@ -49,6 +50,9 @@ explicitly.
 - `rounds/`. Per-round run logs, review records, and reports. The audit trail.
 - `tools/validate.mjs`. Enforces the schema, computes progress against every
   target, and decides whether the goals are met. No dependencies.
+- `tools/apply-verdicts.mjs`. Applies a review round's verdicts to the corpus,
+  all or nothing, and refuses any promotion the specification forbids. The only
+  thing in the project that changes an item's status.
 - `tools/fixtures/`. Synthetic records for the validator's self-test. Reserved
   example domains, never corpus data.
 - `run.sh`. Sequences the loop and stops it at the right time.
@@ -90,6 +94,11 @@ Validate the corpus directly at any time:
     node tools/validate.mjs            human readable
     node tools/validate.mjs --json     machine readable
     node tools/validate.mjs --selftest fixtures and gate logic
+
+Apply a round's verdicts by hand, after checking what they would do:
+
+    node tools/apply-verdicts.mjs --round 1 --dry-run
+    node tools/apply-verdicts.mjs --round 1
 
 
 ## What to expect from round one

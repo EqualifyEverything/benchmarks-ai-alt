@@ -39,11 +39,19 @@ file on GitHub. They are not the paths to write to.
 
 ### 1. Fix before you add
 
-Revision work outranks new collection. Take every item in the latest review
-with a verdict of `revise` and apply the required change, then set its status
-back to `candidate`. Take every item with a verdict of `reject` and set its
-status to `rejected`, keeping the record and its reason codes in place. Never
-delete a record. A rejected item is evidence about what does not work.
+Revision work outranks new collection.
+
+Statuses have already been applied for you. `tools/apply-verdicts.mjs` runs at
+the end of every review round and writes them from the review records: accepted,
+needs-revision, or rejected. You do not set them, and neither does the reviewer.
+
+Your job is the content. Take every item now sitting at `needs-revision`, apply
+the `required_change` from its review record, and set it back to `candidate` so
+it is reviewed again. That is the only status change you may make to an existing
+item, and new items you record enter as `candidate`.
+
+Never delete a record, including a rejected one. A rejected item is evidence
+about what does not belong in the corpus.
 
 ### 2. Choose the gap you are closing
 
@@ -165,7 +173,8 @@ answer is an empty alt, teaches a great deal.
 
 Append one JSON object per line to `../corpus/functional-images.jsonl`,
 following the schema exactly. New items enter with status `candidate`. Never
-mark your own work `accepted`. Only adversarial review promotes an item.
+mark your own work `accepted`. Promotion happens after review, when
+`tools/apply-verdicts.mjs` writes the reviewer's verdicts into the corpus.
 
 ### 9. Write the run log
 
