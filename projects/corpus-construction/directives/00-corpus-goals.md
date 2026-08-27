@@ -60,6 +60,25 @@ that have passed adversarial review.
   controls.
 
 
+### Running toward a smaller goal
+
+A run may stipulate a smaller corpus than the full 250, recorded in
+`corpus/target.txt` and set with `./run.sh --target N`. The three counts above
+scale with it, so a goal of 100 becomes 12 per category and 8 per sub-type. The
+share targets below are ratios and do not scale.
+
+This exists so a first corpus can be finished, examined, and argued about
+before committing tens of hours to the full one. It is not a way to make the
+criteria easier: proportional scaling keeps the shape of the corpus, which is
+what makes it a benchmark rather than a pile of whatever was easiest to find.
+
+Two things follow. A corpus built to a smaller goal is a milestone, not v0.1,
+and must say so wherever it is published, because per sub-type it supports
+weaker claims. And `tools/validate.mjs` is authoritative on the effective
+targets: it prints them on every run, and where its arithmetic and this prose
+disagree, the validator is what the loop obeys.
+
+
 ## Difficulty and discrimination targets
 
 A benchmark item is only useful if getting it right requires judgment. These

@@ -7,7 +7,12 @@
 //   node tools/validate.mjs --json          machine readable report on stdout
 //   node tools/validate.mjs --corpus FILE   validate a different corpus file
 //   node tools/validate.mjs --rounds DIR    read review reports from DIR
+//   node tools/validate.mjs --target 100    goal of 100 accepted items
 //   node tools/validate.mjs --selftest      run the fixture self-test
+//
+// The target is the number of accepted items the run is working toward. It
+// comes from --target, else from corpus/target.txt, else the 250-item v0.1
+// corpus in directive 00. Count targets scale with it; shares do not.
 //
 // Exit codes:
 //   0  corpus is schema clean and every acceptance criterion is met
@@ -68,18 +73,61 @@ const REVIEW_REQUIRED = ['item_id', 'round', 'verdict', 'reason_codes',
   'evidence', 'required_change', 'blocking']
 const VERDICTS = ['accept', 'revise', 'reject']
 
-// Targets from directives/00-corpus-goals.md.
-const TARGETS = {
+// Targets from directives/00-corpus-goals.md. The full v0.1 corpus is 250
+// accepted items, and the count targets below are stated for that size.
+const BASELINE = {
   total: 250,
   perCategory: 30,
   perSubtype: 20,
-  emptyAltShare: 0.15,
-  dualPurposeShare: 0.10,
-  ambiguousShare: 0.20,
-  maxDomainShare: 0.05,
   domainsPerSubtype: 8,
-  cleanItemShare: 0.95,
-  quietRounds: 2,
+}
+
+// A run may stipulate a smaller corpus. Count targets scale with it, so a
+// 100-item goal keeps the same shape as a 250-item one instead of turning into
+// 100 items of whatever was easiest to find. Shares are ratios and do not
+// scale. The floors keep a small corpus from degenerating: a sub-type
+// represented by one item, or drawn from one domain, measures that item rather
+// than the sub-type.
+function targetsFor(total) {
+  const k = total / BASELINE.total
+  const at = (base, floor) => Math.max(floor, Math.round(base * k))
+  return {
+    total,
+    perCategory: at(BASELINE.perCategory, 4),
+    perSubtype: at(BASELINE.perSubtype, 3),
+    domainsPerSubtype: at(BASELINE.domainsPerSubtype, 3),
+    emptyAltShare: 0.15,
+    dualPurposeShare: 0.10,
+    ambiguousShare: 0.20,
+    maxDomainShare: 0.05,
+    cleanItemShare: 0.95,
+    quietRounds: 2,
+  }
+}
+
+// Reassigned by main() once the run's target is known.
+let TARGETS = targetsFor(BASELINE.total)
+
+// Below this, the floors above collide: seven sub-types at three items each
+// already needs 21, and a corpus with no slack over its own minimums cannot
+// satisfy the share targets as well.
+const MIN_TARGET = 25
+
+// The stipulated goal, one integer on the first line that is not a comment.
+// Kept in the corpus directory and committed, so every tool and every round
+// agrees on what the run is working toward, and a change to the goal shows up
+// in the history rather than in someone's shell.
+function readTargetFile(path) {
+  if (!existsSync(path)) return { value: null }
+  for (const raw of readFileSync(path, 'utf8').split('\n')) {
+    const line = raw.trim()
+    if (line === '' || line.startsWith('#')) continue
+    if (!/^\d+$/.test(line)) {
+      return { error: `${path}: expected one whole number, found "${line}"` }
+    }
+    return { value: Number(line) }
+  }
+  return { error: `${path}: no target found in the file` }
 }
 
 const REDUNDANT_STARTERS = ['link to', 'links to', 'button for', 'button to',
@@ -569,6 +617,12 @@ function printText(report) {
   const { corpusPath, schemaErrors, assessment } = report
   const out = []
   out.push(`corpus: ${corpusPath}`)
+  out.push(`goal:   ${TARGETS.total} accepted items` +
+    (TARGETS.total === BASELINE.total
+      ? ' (the full v0.1 corpus)'
+      : `, scaled from ${BASELINE.total}: ${TARGETS.perCategory} per category, ` +
+        `${TARGETS.perSubtype} per sub-type, ` +
+        `${TARGETS.domainsPerSubtype} domains per sub-type`))
   if (schemaErrors.length > 0) {
     out.push('')
     out.push(`schema errors: ${schemaErrors.length}`)
@@ -736,6 +790,46 @@ function selftest() {
   if (gateOk) process.stdout.write('PASS quiet-rounds gate\n')
   else failures++
 
+  // Scaled targets must stay reachable. Seven sub-type minimums and five
+  // category minimums both have to fit inside the total, or the loop would run
+  // to the cap chasing a goal that arithmetic forbids.
+  const scaleCases = [BASELINE.total, 200, 100, 50, MIN_TARGET]
+  let scaleOk = targetsFor(BASELINE.total).perSubtype === BASELINE.perSubtype &&
+    targetsFor(BASELINE.total).perCategory === BASELINE.perCategory
+  for (const n of scaleCases) {
+    const t = targetsFor(n)
+    if (t.perSubtype * 7 > n || t.perCategory * 5 > n ||
+      t.domainsPerSubtype > t.perSubtype) {
+      scaleOk = false
+      process.stdout.write(`FAIL target ${n} scales to unreachable targets: ` +
+        `${t.perSubtype} per sub-type, ${t.perCategory} per category, ` +
+        `${t.domainsPerSubtype} domains per sub-type\n`)
+    }
+  }
+  if (scaleOk) process.stdout.write('PASS scaled targets stay reachable\n')
+  else failures++
+
+  // A malformed target file must stop the run rather than silently reverting to
+  // the 250-item goal, which would look like ordinary slow progress.
+  const tdir = mkdtempSync(join(tmpdir(), 'alt-corpus-target-'))
+  const targetCase = (body) => {
+    const p = join(tdir, 'target.txt')
+    writeFileSync(p, body)
+    return readTargetFile(p)
+  }
+  const targetOk =
+    readTargetFile(join(tdir, 'absent.txt')).value === null &&
+    targetCase('# goal for this run\n100\n').value === 100 &&
+    targetCase('  100  \n').value === 100 &&
+    targetCase('one hundred\n').error !== undefined &&
+    targetCase('# only a comment\n').error !== undefined
+  rmSync(tdir, { recursive: true, force: true })
+  if (targetOk) process.stdout.write('PASS target file read strictly\n')
+  else {
+    process.stdout.write('FAIL target file parsing\n')
+    failures++
+  }
+
   process.stdout.write(failures === 0
     ? '\nself-test passed\n'
     : `\nself-test failed, ${failures} case(s)\n`)
@@ -750,6 +844,7 @@ function main(argv) {
   let corpusPath = join(PROJECT, 'corpus', 'functional-images.jsonl')
   let roundsDir = join(PROJECT, 'rounds')
   let asJson = false
+  let targetArg = null
 
   const needsValue = (arg, value) => {
     if (value === undefined || value.startsWith('--')) {
@@ -769,12 +864,39 @@ function main(argv) {
     } else if (arg === '--rounds') {
       if (!needsValue(arg, argv[i + 1])) return 3
       roundsDir = resolve(argv[++i])
+    } else if (arg === '--target') {
+      const value = argv[i + 1]
+      if (value === undefined || !/^\d+$/.test(value)) {
+        process.stderr.write('validate.mjs: --target needs a whole number of ' +
+          `accepted items, ${MIN_TARGET} or more\n`)
+        return 3
+      }
+      targetArg = Number(value)
+      i++
     } else {
       process.stderr.write(`validate.mjs: unknown argument "${arg}"\n` +
-        'usage: validate.mjs [--json] [--corpus FILE] [--rounds DIR] [--selftest]\n')
+        'usage: validate.mjs [--json] [--corpus FILE] [--rounds DIR] ' +
+        '[--target N] [--selftest]\n')
       return 3
     }
   }
+
+  // Precedence: the flag, then the committed target file, then directive 00.
+  let target = targetArg
+  if (target === null) {
+    const fromFile = readTargetFile(join(dirname(corpusPath), 'target.txt'))
+    if (fromFile.error) {
+      process.stderr.write(`validate.mjs: ${fromFile.error}\n`)
+      return 3
+    }
+    target = fromFile.value === null ? BASELINE.total : fromFile.value
+  }
+  if (target < MIN_TARGET) {
+    process.stderr.write(`validate.mjs: a target of ${target} is too small to ` +
+      `satisfy the coverage targets. Use ${MIN_TARGET} or more.\n`)
+    return 3
+  }
+  TARGETS = targetsFor(target)
 
   if (!existsSync(corpusPath)) {
     const msg = `corpus file not found: ${corpusPath}\n` +
@@ -837,6 +959,7 @@ function main(argv) {
     process.stdout.write(JSON.stringify({
       corpusPath,
       exists: true,
+      targets: TARGETS,
       schemaErrors,
       goalsMet: schemaErrors.length === 0 && assessment.goalsMet,
       counts: assessment.counts,

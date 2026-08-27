@@ -3,9 +3,10 @@
 Build the corpus of functional images, page context, and gold standard alt text
 that the benchmark scores against.
 
-Status: built and tested, no corpus records collected yet. The loop runs, the
-validator enforces the schema and the stop condition, and round one has not been
-run.
+Status: round one has run. 12 items collected, of which 3 accepted, 4 sent back
+for revision, and 5 rejected, mostly for leakage. The machinery works end to
+end; the corpus is 3 items into a 250-item goal, and the round one artefacts are
+worth reading before round two.
 
 
 ## Getting started
@@ -46,8 +47,8 @@ of `PASS` lines and `loop self-test passed` at the end.
 
     ./run.sh --status
 
-Says where the corpus stands and runs no agents. Before round one it reports that
-the corpus file does not exist yet, which is correct.
+Says where the corpus stands and runs no agents. Before round one it reports
+that the corpus file does not exist yet, which is correct.
 
 
 ### 3. Read what the agents will be told
@@ -66,6 +67,19 @@ and reading them is how you know what you are about to get.
 If you disagree with anything in directive 00, change it now. It defines what
 finished means, and the loop will grind toward whatever it says. Those targets
 are a first guess that has not survived contact with the real web.
+
+The one number you are most likely to want to change is the size of the corpus.
+The full v0.1 is 250 accepted items, which is tens of hours of agent time. To
+work toward a smaller first corpus:
+
+    ./run.sh --target 100
+
+That records the goal in `corpus/target.txt`, so every later round and every
+bare `node tools/validate.mjs` uses it without you repeating the flag, and a
+change of goal shows up in the history. Count targets scale with it, so 100
+items means 12 per category and 8 per sub-type, while the share targets, being
+ratios, do not. A corpus built to a smaller goal is a milestone rather than
+v0.1, and supports weaker per-sub-type claims when you publish it.
 
 
 ### 4. Run one round
@@ -94,8 +108,8 @@ be fetched and verified before it is recorded.
   reproduced differently.
 - `rounds/round-01-seek.md`. Which coverage gap the seeking agent chose, which
   search strategies it used, and what it dropped and why. If it reports that a
-  sub-type could not be found, that is a finding about the taxonomy rather than a
-  failed round.
+  sub-type could not be found, that is a finding about the taxonomy rather than
+  a failed round.
 - `corpus/functional-images.jsonl`. The items, one JSON object per line. Run
   `node tools/validate.mjs` for counts against every target.
 - `rounds/round-01-review.jsonl` and `rounds/round-01-report.md`. The per-item
@@ -126,8 +140,8 @@ Then check three things by hand, because nothing here can check them for you:
   quietly lowering it. An unreachable target is a finding about the taxonomy.
 
 Expect the empty-alt and dual-purpose quotas to be hardest to fill. Those items
-require judging context rather than recognising an icon, which is exactly why the
-benchmark needs them.
+require judging context rather than recognising an icon, which is exactly why
+the benchmark needs them.
 
 
 ### If something goes wrong
@@ -138,9 +152,9 @@ benchmark needs them.
 - `exited successfully but did not write`. The agent did nothing. Usually a
   denied tool permission or a failed login, both of which look like a clean exit
   in non-interactive mode. Run the one-line harness check from step 1.
-- Schema errors. The validator names the file, the line, and the field. Fix them,
-  or hand the message to an agent to fix, before running another round. The loop
-  will not run a reviewer over records the validator rejects.
+- Schema errors. The validator names the file, the line, and the field. Fix
+  them, or hand the message to an agent to fix, before running another round.
+  The loop will not run a reviewer over records the validator rejects.
 - `Refused to apply round N verdicts`. The reviewer accepted something the
   specification forbids, such as a leaky item or one with a single gold standard
   pass. Nothing was written. Fix the review records, then `./run.sh --apply N`.
@@ -207,6 +221,7 @@ one turn, so any harness that can write files here and fetch pages can run it.
     ./run.sh --status           progress report, runs no agents
     ./run.sh --agent NAME       run using adapters/NAME.sh
     ./run.sh --max-rounds 1     one round, then stop
+    ./run.sh --target 100       goal of 100 accepted items, not 250
     ./run.sh                    loop until the goals are met, cap 10
     ./run.sh --prompt seek      print the next round's seeking prompt
     ./run.sh --prompt review    print the pending review prompt
@@ -228,6 +243,7 @@ an expired token looks exactly like a clean run.
 Validate or promote by hand at any time:
 
     node tools/validate.mjs            human readable
+    node tools/validate.mjs --target 100  report against a smaller goal
     node tools/validate.mjs --json     machine readable
     node tools/validate.mjs --selftest fixtures and gate logic
     node tools/apply-verdicts.mjs --round 1 --dry-run

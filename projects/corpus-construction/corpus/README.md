@@ -4,6 +4,13 @@ This directory holds the corpus itself, in plain text.
 
 - `functional-images.jsonl`. The corpus. One JSON object per line, one line per
   item. Created by the seeking agent on the first round; absent until then.
+- `target.txt`. The goal for this run, in accepted items: one whole number, plus
+  comment lines starting with `#`. Written by `./run.sh --target N` and read by
+  `../tools/validate.mjs`. Absent means the full 250-item v0.1 corpus in
+  [../directives/00-corpus-goals.md](../directives/00-corpus-goals.md). It is
+  committed rather than passed on the command line so that every round, every
+  bare validator run, and the history all agree on what the loop is working
+  toward. Count targets scale with it; share targets do not.
 
 Records are append-only. Items are never deleted, only given a new status.
 Rejected items stay in the file with their reason codes, because they are

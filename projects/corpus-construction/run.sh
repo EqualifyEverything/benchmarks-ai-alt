@@ -5,6 +5,7 @@
 #   ./run.sh                  run until the goals are met or the cap is hit
 #   ./run.sh --agent pi       run the rounds with adapters/pi.sh
 #   ./run.sh --max-rounds 3   stop after three rounds regardless
+#   ./run.sh --target 100     work toward 100 accepted items, not 250
 #   ./run.sh --status         report progress and exit, running no agents
 #   ./run.sh --prompt seek    print the next round's prompt and exit
 #   ./run.sh --apply 3        apply round 3 verdicts, after a hand-run round
@@ -38,6 +39,7 @@
 #   AGENT_CMD     command that runs one agent turn. Default: an adapter.
 #   AGENT_FLAGS   extra arguments for it. Default: none.
 #   MAX_ROUNDS    same as --max-rounds. Default: 10
+#   TARGET        same as --target. Default: corpus/target.txt, else 250
 #
 # Every round is checked by its artefacts, not by the agent's exit code: an
 # agent that exits zero without writing its files stops the loop.
@@ -58,6 +60,8 @@ ADAPTERS="${ADAPTERS:-$PROJECT/adapters}"
 AGENT_CMD="${AGENT_CMD:-}"
 AGENT_FLAGS="${AGENT_FLAGS:-}"
 MAX_ROUNDS="${MAX_ROUNDS:-10}"
+TARGET="${TARGET:-}"
+TARGET_FILE="$PROJECT/corpus/target.txt"
 MODE=loop
 AGENT_NAME=""
 AGENT_LABEL=""
@@ -68,12 +72,13 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --agent) AGENT_NAME="${2:-}"; shift; shift ;;
     --max-rounds) MAX_ROUNDS="${2:-}"; shift; shift ;;
+    --target) TARGET="${2:-}"; shift; shift ;;
     --status) MODE=status; shift ;;
     --selftest) MODE=selftest; shift ;;
     --next-round) MODE=next-round; shift ;;
     --prompt) MODE=prompt; ROLE_ARG="${2:-}"; shift; shift ;;
     --apply) MODE=apply; APPLY_ROUND="${2:-}"; shift; shift ;;
-    -h|--help) sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "run.sh: unknown argument \"$1\"" >&2; exit 3 ;;
   esac
 done
@@ -82,6 +87,32 @@ case "$MAX_ROUNDS" in
   ''|*[!0-9]*|0) echo "run.sh: --max-rounds needs a whole number of 1 or more" >&2
     exit 3 ;;
 esac
+
+# The goal, in accepted items. Stipulating it writes corpus/target.txt, so every
+# later round, every bare validator run, and the git history all agree on what
+# the loop is working toward. Count targets scale with it; shares do not.
+TARGET_FLAGS=""
+if [ -n "$TARGET" ]; then
+  case "$TARGET" in
+    ''|*[!0-9]*) echo "run.sh: --target needs a whole number of accepted items" >&2
+      exit 3 ;;
+  esac
+  if [ "$TARGET" -lt 25 ]; then
+    echo "run.sh: a target of $TARGET is too small to satisfy the coverage" >&2
+    echo "targets in directive 00. Use 25 or more." >&2
+    exit 3
+  fi
+  TARGET_FLAGS="--target $TARGET"
+  if [ "$MODE" != selftest ]; then
+    {
+      echo "# The goal for this run, in accepted items. Read by tools/validate.mjs"
+      echo "# and run.sh. Count targets in directives/00-corpus-goals.md scale to"
+      echo "# it; the share targets are ratios and do not."
+      echo "$TARGET"
+    } > "$TARGET_FILE"
+    echo "goal set to $TARGET accepted items, recorded in corpus/target.txt"
+  fi
+fi
 
 if [ "$MODE" = prompt ]; then
   case "$ROLE_ARG" in
@@ -103,7 +134,7 @@ rule() { say "------------------------------------------------------------"; }
 # Progress report. The exit code carries the meaning, so callers read it:
 # 0 goals met, 1 not yet, 2 schema errors or no corpus file.
 check() {
-  node "$VALIDATE" --corpus "$CORPUS" --rounds "$ROUNDS"
+  node "$VALIDATE" --corpus "$CORPUS" --rounds "$ROUNDS" $TARGET_FLAGS
 }
 
 # Next round number: one past the highest round that left any artefact behind.
@@ -651,6 +682,21 @@ GEN
     pass "--apply promotes a hand-run round"
   else
     fail "--apply exited $rc with $promoted accepted: $out"
+  fi
+
+  # 16. A stipulated goal is recorded, scales the count targets, and is picked
+  #     up by later invocations that do not repeat the flag. A goal that only
+  #     lived in one shell command would silently revert to 250 next round.
+  out="$(cd "$proj" && ./run.sh --target 100 --status 2>&1)"
+  again="$(cd "$proj" && ./run.sh --status 2>&1)"
+  small="$(cd "$proj" && ./run.sh --target 4 --status 2>&1)"; rc=$?
+  if printf '%s' "$out" | grep -q 'goal:  *100 accepted items' &&
+    printf '%s' "$out" | grep -q '8 per sub-type' &&
+    printf '%s' "$again" | grep -q 'goal:  *100 accepted items' &&
+    [ "$rc" -eq 3 ] && printf '%s' "$small" | grep -q 'too small'; then
+    pass "--target scales the goal and persists to later rounds"
+  else
+    fail "--target: exit $rc, first run: $out"
   fi
 
   rule
