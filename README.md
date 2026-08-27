@@ -64,6 +64,20 @@ Guidance for AI coding agents working in this repository lives in
 [CLAUDE.md](CLAUDE.md).
 
 
+## Projects
+
+Each project lives in its own directory under [projects/](projects/), with its
+own goal, directives, data, and README.
+
+- [Corpus construction](projects/corpus-construction/). Build the corpus of
+  functional images, page context, and gold standard alt text that the benchmark
+  scores against. Two agents in a loop, a seeking agent and an adversarial
+  reviewer, with a mechanical stop condition. Built and tested; no corpus
+  records collected yet.
+
+The [projects index](projects/README.md) says how to add another one.
+
+
 ## The opportunity
 
 AI now writes most of the alt text on the internet. Almost no one is measuring
