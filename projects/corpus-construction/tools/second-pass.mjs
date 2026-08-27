@@ -39,6 +39,10 @@ const PROJECT = resolve(HERE, '..')
 // item schema later cannot leak into the second pass by default. `item_id` is
 // here because the pass has to be attributable; everything else is context a
 // person looking at the page would have.
+// `accessible_name` is deliberately absent: it is what the control announces
+// today, which is often the answer or close to it, and handing it over would make
+// this pass a copy rather than an independent one. The markup carries it anyway,
+// and the directive says to judge the function rather than trust the label.
 // `image_file` is the local copy, named after the item, so it lets the second
 // pass look at the image even if the page has changed and it gives away nothing:
 // the file name is the item id, not the site's own name for the image.

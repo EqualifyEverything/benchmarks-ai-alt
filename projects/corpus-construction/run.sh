@@ -657,6 +657,7 @@ for (const [subtype, category, count] of subtypes) {
       surrounding_text: empty ? `Synthetic action ${n}` : '',
       destination: `Synthetic destination ${n}`,
       observed_alt: 'x', observed_alt_verdict: 'wrong',
+      accessible_name: 'x', accessible_name_source: 'alt',
       gold_alt: alt,
       gold_alt_rationale: 'Synthetic fixture rationale long enough to satisfy the minimum length rule.',
       gold_alt_passes: [

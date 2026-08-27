@@ -197,7 +197,11 @@ we use to build the gold standard the benchmark scores against?
 Two agents, run in a loop, with a mechanical stop condition.
 
 - A seeking agent searches the public web, verifies what it finds, and records
-  items with their real context and an independently authored gold standard.
+  items with their real context and an independently authored gold standard. It
+  only collects images whose control already has an accessible name, from alt
+  text, an ARIA label, a title, or the control's own text. This corpus is images
+  paired with alternative descriptions, so a control that announces nothing is
+  skipped rather than recorded.
 - An adversarial reviewer tries to break every item, writes a verdict per item,
   and reports corpus-level defects the item-by-item pass cannot see.
 - The loop repeats until the corpus meets the acceptance criteria, which include

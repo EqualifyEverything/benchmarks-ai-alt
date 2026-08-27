@@ -39,3 +39,41 @@ which is the point of keeping them.
 
 Effect on the counts: 0 accepted items, 3 candidates, 4 awaiting revision, 5
 rejected, and 7 items waiting for a second pass.
+
+
+## 2026-08-27: local image copies added to the 12 existing items
+
+`image_file` and `image_sha256` were added to the schema, and the 12 existing
+records predated them. Every record was backfilled with both fields set to
+`null`, then `./run.sh --images` filled them in the ordinary way: 5 items now
+link a copy in [images/](images/), and the other 7 have either no separate image
+file, being an inline SVG or a sprite reference, or an image URL that no longer
+serves the file.
+
+No other field was touched, and no status changed. The 5 copies were fetched
+from the `image_url` already recorded, and each record's hash was written by
+`../tools/fetch-images.mjs`, not by hand.
+
+
+## 2026-08-27: accessible names recorded for the 12 existing items
+
+The corpus now only holds images whose control already has an accessible name;
+see the collection constraints in
+[../directives/00-corpus-goals.md](../directives/00-corpus-goals.md). That added
+two required fields, `accessible_name` and `accessible_name_source`, and the 12
+existing records predated them.
+
+Each was backfilled by reading the recorded markup, which is verbatim, and
+computing the name a screen reader would announce:
+
+- 8 items are named by the image's own alt text: fi-0001, fi-0003, fi-0004,
+  fi-0005, fi-0006, fi-0010, fi-0011 by `alt`, and the name is that alt value.
+- fi-0002, fi-0007 and fi-0009 are named by the control's own visible text. In
+  fi-0009 the image carries `aria-hidden="true"`, so its alt text contributes
+  nothing and the link is named by the span inside it.
+- fi-0008 and fi-0012 are named by an `aria-label`. In fi-0008 the label sits on
+  the link and overrides the SVG's own `<title>`, which is why the recorded name
+  is "Go to the GOV.UK homepage" rather than the "GOV.UK" in `observed_alt`.
+
+No item had to be dropped: all 12 controls were already named. No other field was
+touched and no status changed.

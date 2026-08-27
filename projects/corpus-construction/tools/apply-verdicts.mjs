@@ -44,6 +44,14 @@ function blocksAcceptance(item) {
     return 'the image has no local copy in corpus/images/, so run ' +
       './run.sh --images'
   }
+  // The corpus only holds images whose control already announces something. An
+  // item with no accessible name does not belong in it at all, so promoting one
+  // is refused here as well as by the schema.
+  if (typeof item.accessible_name !== 'string' ||
+      item.accessible_name.trim() === '') {
+    return 'the control has no existing accessible name, so the item should ' +
+      'not have been collected'
+  }
   const passes = Array.isArray(item.gold_alt_passes) ? item.gold_alt_passes : []
   const adjudicated = typeof item.adjudication === 'string' &&
     item.adjudication.trim() !== ''
@@ -147,6 +155,7 @@ function selftest() {
 
   const item = (id, over) => ({
     id, status: 'candidate', leaky: false, adjudication: null,
+    accessible_name: 'Settings', accessible_name_source: 'alt',
     gold_alt_passes: [{ author: 'a', alt: 'x', rationale: 'r' },
       { author: 'b', alt: 'x', rationale: 'r' }],
     ...over,
@@ -202,6 +211,15 @@ function selftest() {
   check('refuses to accept an image with no local copy',
     noCopy && withCopy && noImage,
     `missing ${noCopy}, present ${withCopy}, no image at all ${noImage}`)
+
+  // An item whose control has no accessible name is never promoted: it should
+  // never have been collected.
+  write(corpusPath, [item('fi-0001', { accessible_name: '' })])
+  write(reviewPath, [{ item_id: 'fi-0001', round: 1, verdict: 'accept' }])
+  r = apply(corpusPath, reviewPath, 1)
+  check('refuses to accept an item with no accessible name',
+    r.errors.length === 1 && r.errors[0].includes('no existing accessible name'),
+    r.errors.join('; ') || 'no error raised')
 
   // A single-pass item is never promoted without an adjudication.
   write(corpusPath, [item('fi-0001',

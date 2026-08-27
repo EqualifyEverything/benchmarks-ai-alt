@@ -93,6 +93,17 @@ variants.
   failures and must stay distinguishable.
 - `observed_alt_verdict`. One of `correct`, `wrong`, `missing`,
   `empty-appropriate`, `empty-inappropriate`.
+- `accessible_name`. Non-empty string. What the control actually announces today,
+  computed from the page the way a screen reader would. Never empty: an image
+  whose control has no alt text and no other accessible description is not
+  collected at all, so no item exists to record an empty value for. See the
+  collection constraints in
+  [../directives/00-corpus-goals.md](../directives/00-corpus-goals.md).
+- `accessible_name_source`. Where that name comes from. One of `alt`,
+  `aria-label`, `aria-labelledby`, `title`, `svg-title`, `control-text`. With
+  `alt` the name must be the `observed_alt` value, and with `control-text` the
+  `surrounding_text` must be non-empty, so the claim is checkable against the
+  rest of the record rather than taken on trust.
 - `gold_alt`. The gold standard alt text. Empty string when the correct answer
   is `alt=""`.
 - `gold_alt_rationale`. Why, citing the criteria it rests on and naming the
@@ -129,7 +140,8 @@ writes the item statuses: `accept` becomes `accepted`, `revise` becomes
 `needs-revision`, `reject` becomes `rejected`. It applies a round all or
 nothing, and it refuses to promote an item this schema forbids: a leaky one, one
 with a single gold standard pass, one whose two passes disagree with no
-adjudication recorded, or one with an `image_url` and no local copy of the image.
+adjudication recorded, one with an `image_url` and no local copy of the image, or
+one whose control has no accessible name.
 An item waiting on an adjudication or on a copy is `revise`, never `accept`.
 
 - `item_id`. The `id` of the item reviewed.
@@ -179,6 +191,9 @@ together.
 - `NO-SECOND-PASS`. Fewer than two independent gold standard passes and no
   adjudication, or a `pass-b` that appears in no round's
   `round-NN-second-pass.jsonl` and so cannot have been authored blind.
+- `NO-ACCESSIBLE-NAME`. The control announces nothing: no alt text, no
+  `aria-label`, no `title`, no text of its own. The item does not belong in the
+  corpus and the verdict is `reject`, not `revise`.
 - `NO-IMAGE-COPY`. The item has an `image_url` and no local copy in
   `images/`, or the copy on disk does not match the recorded `image_sha256`.
   Such an item is `revise`, never `accept`.
@@ -199,7 +214,9 @@ real corpus data. Executable copies of this and other examples live in
      "implementation":"img","element_role":"button",
      "element_html":"<button type=\"button\"><img src=\"/i/g12.svg\" alt=\"gear\"></button>",
      "surrounding_text":"","destination":"Opens the account settings panel",
-     "observed_alt":"gear","observed_alt_verdict":"wrong","gold_alt":"Settings",
+     "observed_alt":"gear","observed_alt_verdict":"wrong",
+     "accessible_name":"gear","accessible_name_source":"alt",
+     "gold_alt":"Settings",
      "gold_alt_rationale":"Names the outcome of activating the control rather than the glyph, per action over description; rejected \"gear\" because the visual is irrelevant to the user.",
      "gold_alt_passes":[{"author":"pass-a","alt":"Settings","rationale":"Function, not glyph."},
                         {"author":"pass-b","alt":"Settings","rationale":"Opens settings; label the outcome."}],

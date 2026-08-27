@@ -54,12 +54,18 @@ const ROLES = ['link', 'button', 'input-image', 'area', 'custom', 'glyph']
 const OBSERVED_VERDICTS = ['correct', 'wrong', 'missing', 'empty-appropriate',
   'empty-inappropriate']
 const DIFFICULTIES = ['trivial', 'standard', 'ambiguous']
+// Where the control's existing accessible name comes from. An image whose
+// control has no name from any of these is not collected at all, so every item
+// pairs an image with an alternative description that was really shipped.
+const NAME_SOURCES = ['alt', 'aria-label', 'aria-labelledby', 'title',
+  'svg-title', 'control-text']
 
 const REQUIRED = ['id', 'status', 'round_added', 'category', 'subtype',
   'page_url', 'domain', 'image_url', 'image_file', 'image_sha256',
   'implementation', 'element_role',
   'element_html', 'surrounding_text', 'destination', 'observed_alt',
-  'observed_alt_verdict', 'gold_alt', 'gold_alt_rationale', 'gold_alt_passes',
+  'observed_alt_verdict', 'accessible_name', 'accessible_name_source',
+  'gold_alt', 'gold_alt_rationale', 'gold_alt_passes',
   'adjudication', 'difficulty', 'dual_purpose', 'leakage_check', 'leaky',
   'retrieved', 'provenance_note']
 const OPTIONAL = ['notes']
@@ -68,7 +74,8 @@ const REASON_CODES = ['CLEAN', 'UNVERIFIABLE-SOURCE', 'CONTEXT-INACCURATE',
   'NOT-FUNCTIONAL', 'MISCLASSIFIED', 'APPEARANCE-DESCRIPTION',
   'REDUNDANCY-MISSED', 'WRONGLY-EMPTY', 'REDUNDANT-STARTER', 'TOO-VERBOSE',
   'ASSUMPTION', 'NO-RATIONALE', 'LEAKAGE', 'NON-DISCRIMINATING', 'DUPLICATE',
-  'MISSING-FIELD', 'NO-SECOND-PASS', 'NO-IMAGE-COPY', 'LICENSE-UNCLEAR']
+  'MISSING-FIELD', 'NO-SECOND-PASS', 'NO-IMAGE-COPY', 'NO-ACCESSIBLE-NAME',
+  'LICENSE-UNCLEAR']
 
 const REVIEW_REQUIRED = ['item_id', 'round', 'verdict', 'reason_codes',
   'evidence', 'required_change', 'blocking']
@@ -327,6 +334,32 @@ function validateItem(rec, line, seenIds, path) {
   if (rec.observed_alt === null && rec.observed_alt_verdict !== 'missing') {
     bad(`${id}: \`observed_alt\` is null so \`observed_alt_verdict\` must be ` +
       `"missing"`)
+  }
+
+  // The control must already announce something. An image on a control with no
+  // accessible name at all is not collected, so this field is never empty: there
+  // is no such item to describe. See directive 00, collection constraints.
+  if (!isStr(rec.accessible_name) || rec.accessible_name.trim() === '') {
+    bad(`${id}: \`accessible_name\` must be non-empty. An image whose control ` +
+      'has no alt text and no other accessible description is not collected')
+  }
+  if (!NAME_SOURCES.includes(rec.accessible_name_source)) {
+    bad(`${id}: \`accessible_name_source\` must be one of ` +
+      NAME_SOURCES.join(', '))
+  }
+  if (rec.accessible_name_source === 'alt' && isStr(rec.accessible_name)) {
+    if (!isStr(rec.observed_alt) || rec.observed_alt === '') {
+      bad(`${id}: \`accessible_name_source\` is "alt" but \`observed_alt\` is ` +
+        'not a non-empty string')
+    } else if (rec.observed_alt !== rec.accessible_name) {
+      bad(`${id}: \`accessible_name\` must be the \`observed_alt\` value when ` +
+        'the source is "alt"')
+    }
+  }
+  if (rec.accessible_name_source === 'control-text' &&
+      isStr(rec.surrounding_text) && rec.surrounding_text.trim() === '') {
+    bad(`${id}: \`accessible_name_source\` is "control-text" but ` +
+      '`surrounding_text` is empty, so there is no text to name it')
   }
 
   if (!isStr(rec.gold_alt)) {
@@ -872,6 +905,38 @@ function selftest() {
     process.stdout.write('FAIL local image copies criterion\n')
   }
   if (archiveOk) process.stdout.write('PASS image archive references checked\n')
+  else failures++
+
+  // An image whose control announces nothing is not collected, so the name and
+  // its source must both be real, and the source must agree with the rest of the
+  // record. A name claimed from `alt` that is not the observed alt value would
+  // let an unlabelled control into the corpus behind a description nobody shipped.
+  const named = (over) => validateItem({ ...base, ...over }, 1, new Map(),
+    'inline').filter((e) => e.includes('accessible_name'))
+  const nameCases = [
+    [{ accessible_name: 'gear', accessible_name_source: 'alt' }, null],
+    [{ accessible_name: '', accessible_name_source: 'alt' }, 'non-empty'],
+    [{ accessible_name: '   ', accessible_name_source: 'alt' }, 'non-empty'],
+    [{ accessible_name: 'gear', accessible_name_source: 'vibes' }, 'must be one of'],
+    [{ accessible_name: 'Settings', accessible_name_source: 'alt' },
+      'must be the `observed_alt` value'],
+    [{ accessible_name: 'Home', accessible_name_source: 'control-text' },
+      'no text to name it'],
+    [{ accessible_name: 'Home', accessible_name_source: 'aria-label' }, null],
+    [{ accessible_name: 'Home', accessible_name_source: 'control-text',
+      surrounding_text: 'Home' }, null],
+  ]
+  let nameOk = true
+  nameCases.forEach(([over, want], i) => {
+    const errs = named(over)
+    const got = want === null ? errs.length === 0 : errs.some((e) => e.includes(want))
+    if (!got) {
+      nameOk = false
+      process.stdout.write(`FAIL accessible name case ${i}: [${errs.join('; ')}], ` +
+        `expected ${want ?? 'no error'}\n`)
+    }
+  })
+  if (nameOk) process.stdout.write('PASS accessible name required and checked\n')
   else failures++
 
   // An empty corpus must not claim the goals are met.

@@ -72,8 +72,10 @@ own goal, directives, data, and README.
 - [Corpus construction](projects/corpus-construction/). Build the corpus of
   functional images, page context, and gold standard alt text that the benchmark
   scores against. Two agents in a loop, a seeking agent and an adversarial
-  reviewer, with a mechanical stop condition. Built and tested; no corpus
-  records collected yet.
+  reviewer, with a mechanical stop condition. Built and tested; round one
+  collected 12 items, none accepted yet. Only images whose control already has an
+  accessible name are collected, because the corpus pairs each image with an
+  alternative description that was really shipped.
 
 The [projects index](projects/README.md) says how to add another one.
 

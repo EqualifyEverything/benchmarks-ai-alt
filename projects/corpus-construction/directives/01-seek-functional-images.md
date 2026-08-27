@@ -79,6 +79,11 @@ Do not collect broadly and hope the quotas fill. Fill the thinnest slot first.
 Two things make a round productive: knowing where the sub-type you need actually
 lives, and varying how you look for it.
 
+Before you spend effort on a candidate, check that its control announces
+something. An icon-only button with no alt text, no label and no text of its own
+is not an item, however good an example it would have been; step 4 drops it and
+this corpus does not collect it. Notice that early, not after verifying the page.
+
 Aim for 10 to 25 recorded items in a round, and prefer the low end with better
 verification. A round that records 8 items you are certain of is worth more than
 one that records 40 the reviewer will reject, because rejected items cost the
@@ -262,6 +267,13 @@ For each candidate, confirm all of the following, and drop it if any fails:
   merely informative or decorative, it does not belong in this corpus version.
 - You can identify the destination or the action. If you cannot say what
   activating it does, you cannot judge alt text for it.
+- The control already has an accessible name. Work out what a screen reader would
+  announce, and where that comes from: the image's alt text, an `aria-label` or
+  `aria-labelledby`, a `title`, an SVG `<title>`, or the control's own visible
+  text. If nothing names it, skip the image and do not record it. An unnamed
+  control has no existing description to pair with the image, and that is what
+  this corpus is. Note that `alt=""` inside a link whose own text names the
+  destination is named, by that text, and is exactly the kind of item to keep.
 - The image URL and the page URL both resolve.
 - The item is not already in the corpus. Deduplicate on image URL together with
   page URL, and check for near-duplicates: the same icon from the same icon set
@@ -338,6 +350,11 @@ following the schema exactly. New items enter with status `candidate`. Never
 mark your own work `accepted`. Promotion happens after review, when
 `tools/apply-verdicts.mjs` writes the reviewer's verdicts into the corpus.
 
+Record `accessible_name` and `accessible_name_source` from the check in step 4.
+When the source is `alt` the name must be the observed alt value verbatim, and
+when it is `control-text` the surrounding text field must carry that text, so the
+claim can be checked against the rest of the record.
+
 Set `image_file` and `image_sha256` to `null`. Do not download the image yourself
 and do not fill those fields in. `../tools/fetch-images.mjs` copies each image
 into `../corpus/images/`, names the copy after the item, and records the hash; the
@@ -370,6 +387,9 @@ covering:
   value. Fabricated provenance is the one defect that would invalidate the whole
   benchmark, and it is undetectable later without refetching every item.
 - Never record an item you have not retrieved.
+- Never record an image whose control announces nothing, and never invent an
+  accessible name to get one past the validator. Skipping it is the correct
+  outcome, and worth a line in the run log if it happens often.
 - Never copy the site's alt text into the gold standard field. Judge it, in the
   observed alt verdict field.
 - Never promote your own candidates to accepted.

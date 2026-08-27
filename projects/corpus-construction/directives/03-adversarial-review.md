@@ -86,6 +86,15 @@ page drift, and say which one you concluded and why.
 - Is the category and sub-type right? Code `MISCLASSIFIED`.
 - Is it inside a real interactive element, or is that inferred? Code
   `MISCLASSIFIED` if the interactive ancestor is not in the recorded markup.
+- Does the control really have the accessible name the record claims, from the
+  source it names? Compute it from the markup the way a screen reader would: alt
+  text, `aria-label`, `aria-labelledby`, `title`, an SVG `<title>`, or the
+  control's own text, and remember that a name on the interactive ancestor
+  overrides one on the image inside it. If the control announces nothing, the item
+  should never have been collected: code `NO-ACCESSIBLE-NAME` and reject it. If it
+  is named but from a different source than recorded, code `CONTEXT-INACCURATE`.
+  An `alt=""` image inside a link whose own text names the destination is named,
+  by that text, and is a legitimate item.
 
 ### Gold standard quality, blocking
 
@@ -154,7 +163,8 @@ page drift, and say which one you concluded and why.
   `tools/apply-verdicts.mjs` refuses such a promotion and stops the loop, so an
   `accept` there costs the round.
 - `reject`. Not salvageable. Wrong classification that cannot be re-filed,
-  unverifiable provenance, or leakage inherent to the item.
+  unverifiable provenance, leakage inherent to the item, or a control with no
+  accessible name, which does not belong in this corpus at all.
 
 Set `blocking` to true when the defect must be resolved before the item can be
 part of the corpus. An `accept` is never blocking, and the validator rejects a

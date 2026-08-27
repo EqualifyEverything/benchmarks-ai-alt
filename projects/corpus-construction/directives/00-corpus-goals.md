@@ -39,6 +39,10 @@ Each item must record:
 - What the site shipped. The alt text that was actually present, including an
   empty value or the absence of the attribute, and a judgment on whether it was
   correct.
+- The existing accessible name, and where it comes from. Every item pairs an
+  image with a description someone really shipped, so the control must already
+  announce something: alt text, an `aria-label`, an `aria-labelledby`, a `title`,
+  an SVG `<title>`, or the control's own visible text.
 - The gold standard. Alt text authored independently against the criteria in
   the repository [README.md](../../../README.md), with a written rationale.
 
@@ -135,6 +139,23 @@ targets keep the corpus from filling up with icons any model can label.
   invented markup.
 - Public pages only. Nothing behind authentication, a paywall, or a consent
   barrier.
+- The control must already have an accessible name. An image on a control that
+  announces nothing, no alt text, no `aria-label`, no `aria-labelledby`, no
+  `title`, no SVG `<title>`, and no visible text of its own, is skipped entirely
+  and not recorded. This corpus is images paired with alternative descriptions;
+  an unnamed control has no description to pair with, and cataloguing missing alt
+  text is a different project.
+
+  An empty `alt` attribute is not the same thing as no name. A logo with
+  `alt=""` inside a link whose own text reads "W3C Home" is named, by that text,
+  and those items are among the most valuable in the corpus: the correct answer
+  there is the empty attribute, and getting it right takes judgment rather than
+  recognition. What is excluded is the control that announces nothing at all,
+  where no source of a name exists.
+
+  Record the name in `accessible_name` and its source in
+  `accessible_name_source`. The validator requires both, and refuses a source
+  that the rest of the record contradicts.
 - Respect `robots.txt` and site terms. If a site disallows retrieval, skip it
   and record nothing.
 - Do not republish the image files. One local copy per item is kept under
@@ -166,8 +187,8 @@ corpus file and the two most recent review reports:
 2. Every difficulty and discrimination target is met.
 3. Every source diversity target is met.
 4. Every accepted item has two agreeing independent gold standards, or a
-   recorded adjudication, and a local copy of its image matching the recorded
-   hash.
+   recorded adjudication, a local copy of its image matching the recorded hash,
+   and a recorded accessible name.
 5. At least 95 percent of accepted items carry no unresolved blocking
    finding. A blocking finding stays open until a later review of that same item
    clears it, so it cannot age out simply because the loop moved on.
