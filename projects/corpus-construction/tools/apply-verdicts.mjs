@@ -36,6 +36,14 @@ const VERDICT_STATUS = {
 // refused here rather than surfacing as a schema error later.
 function blocksAcceptance(item) {
   if (item.leaky === true) return 'the item is marked leaky'
+  // An item with a separate image file needs the local copy of it. Accepting one
+  // without it would put an item in the corpus that stops being scoreable the
+  // day its page changes, and the change is silent.
+  if (typeof item.image_url === 'string' && item.image_url !== '' &&
+      typeof item.image_file !== 'string') {
+    return 'the image has no local copy in corpus/images/, so run ' +
+      './run.sh --images'
+  }
   const passes = Array.isArray(item.gold_alt_passes) ? item.gold_alt_passes : []
   const adjudicated = typeof item.adjudication === 'string' &&
     item.adjudication.trim() !== ''
@@ -173,6 +181,27 @@ function selftest() {
   check('refuses to accept a leaky item',
     r.errors.length === 1 && r.errors[0].includes('leaky'),
     r.errors.join('; ') || 'no error raised')
+
+  // An item whose image was never copied locally is never promoted. An item with
+  // no separate image file, an inline SVG or an icon font glyph, has nothing to
+  // copy and is unaffected.
+  write(corpusPath, [item('fi-0001',
+    { image_url: 'https://example.com/i/1.png', image_file: null })])
+  write(reviewPath, [{ item_id: 'fi-0001', round: 1, verdict: 'accept' }])
+  r = apply(corpusPath, reviewPath, 1)
+  const noCopy = r.errors.length === 1 && r.errors[0].includes('no local copy')
+  write(corpusPath, [item('fi-0001', {
+    image_url: 'https://example.com/i/1.png',
+    image_file: 'corpus/images/fi-0001.png' })])
+  r = apply(corpusPath, reviewPath, 1)
+  const withCopy = r.errors.length === 0 &&
+    JSON.parse(r.lines.trim()).status === 'accepted'
+  write(corpusPath, [item('fi-0001', { image_url: null, image_file: null })])
+  r = apply(corpusPath, reviewPath, 1)
+  const noImage = r.errors.length === 0
+  check('refuses to accept an image with no local copy',
+    noCopy && withCopy && noImage,
+    `missing ${noCopy}, present ${withCopy}, no image at all ${noImage}`)
 
   // A single-pass item is never promoted without an adjudication.
   write(corpusPath, [item('fi-0001',

@@ -56,7 +56,8 @@ const OBSERVED_VERDICTS = ['correct', 'wrong', 'missing', 'empty-appropriate',
 const DIFFICULTIES = ['trivial', 'standard', 'ambiguous']
 
 const REQUIRED = ['id', 'status', 'round_added', 'category', 'subtype',
-  'page_url', 'domain', 'image_url', 'implementation', 'element_role',
+  'page_url', 'domain', 'image_url', 'image_file', 'image_sha256',
+  'implementation', 'element_role',
   'element_html', 'surrounding_text', 'destination', 'observed_alt',
   'observed_alt_verdict', 'gold_alt', 'gold_alt_rationale', 'gold_alt_passes',
   'adjudication', 'difficulty', 'dual_purpose', 'leakage_check', 'leaky',
@@ -67,7 +68,7 @@ const REASON_CODES = ['CLEAN', 'UNVERIFIABLE-SOURCE', 'CONTEXT-INACCURATE',
   'NOT-FUNCTIONAL', 'MISCLASSIFIED', 'APPEARANCE-DESCRIPTION',
   'REDUNDANCY-MISSED', 'WRONGLY-EMPTY', 'REDUNDANT-STARTER', 'TOO-VERBOSE',
   'ASSUMPTION', 'NO-RATIONALE', 'LEAKAGE', 'NON-DISCRIMINATING', 'DUPLICATE',
-  'MISSING-FIELD', 'NO-SECOND-PASS', 'LICENSE-UNCLEAR']
+  'MISSING-FIELD', 'NO-SECOND-PASS', 'NO-IMAGE-COPY', 'LICENSE-UNCLEAR']
 
 const REVIEW_REQUIRED = ['item_id', 'round', 'verdict', 'reason_codes',
   'evidence', 'required_change', 'blocking']
@@ -129,6 +130,14 @@ function readTargetFile(path) {
   }
   return { error: `${path}: no target found in the file` }
 }
+
+// The local archive, written by tools/fetch-images.mjs. The path is
+// project-relative and named after the item, so a reference can be checked
+// without opening the file, and one item's copy can never be filed under
+// another's name.
+const ARCHIVE_DIR = 'corpus/images'
+const archivePathFor = (id) => new RegExp(`^${ARCHIVE_DIR}/${id}\\.[a-z0-9]{2,4}$`)
+const SHA256_HEX = /^[0-9a-f]{64}$/
 
 const REDUNDANT_STARTERS = ['link to', 'links to', 'button for', 'button to',
   'icon of', 'icon for', 'image of', 'graphic of', 'picture of', 'go to link']
@@ -273,6 +282,26 @@ function validateItem(rec, line, seenIds, path) {
     }
   } else if (rec.image_url !== null && !isHttpUrl(rec.image_url)) {
     bad(`${id}: \`image_url\` must be an http URL or null`)
+  }
+
+  // The local copy. This checks the reference only: that it is shaped right,
+  // named after this item, and paired with a hash. Whether those bytes are
+  // really on disk is checked by `node tools/fetch-images.mjs --verify`, which
+  // the loop runs every round.
+  if (rec.image_file !== null) {
+    if (!isStr(rec.image_file) || !archivePathFor(rec.id).test(rec.image_file)) {
+      bad(`${id}: \`image_file\` must be null or ${ARCHIVE_DIR}/${rec.id}.EXT`)
+    }
+    if (rec.image_url === null) {
+      bad(`${id}: \`image_file\` is set but \`image_url\` is null, so there is ` +
+        'no separate image file to have copied')
+    }
+    if (!isStr(rec.image_sha256) || !SHA256_HEX.test(rec.image_sha256)) {
+      bad(`${id}: \`image_sha256\` must be 64 lowercase hex characters when ` +
+        '`image_file` is set')
+    }
+  } else if (rec.image_sha256 !== null) {
+    bad(`${id}: \`image_sha256\` must be null when \`image_file\` is null`)
   }
 
   if (!ROLES.includes(rec.element_role)) {
@@ -586,6 +615,18 @@ function assess(items, reviews, reports) {
       : `${noSecond} accepted items with a single pass, or disagreeing passes ` +
         'and no adjudication')
 
+  // Every accepted item that has a separate image file must also have the local
+  // copy of it. An item whose image has since been deleted from the web cannot be
+  // scored, and cannot be shown to anyone who disputes the score.
+  const unarchived = accepted.filter((r) =>
+    isStr(r.image_url) && !isStr(r.image_file))
+  add('local image copies', unarchived.length === 0,
+    unarchived.length === 0
+      ? 'every accepted item with an image URL has a copy in corpus/images/'
+      : `${unarchived.length} accepted item(s) with no local copy: ` +
+        unarchived.slice(0, 5).map((r) => r.id).join(' ') +
+        (unarchived.length > 5 ? ' and more' : ''))
+
   // Blocking findings still open against accepted items. An item's most recent
   // review is the one that counts: a blocking finding stays open until a later
   // round says otherwise, so it cannot age out of the gate just by the corpus
@@ -631,6 +672,8 @@ function assess(items, reviews, reports) {
   const pending = {
     secondPass: inPlay.filter((r) => passState(r) === 'one-pass').length,
     adjudication: inPlay.filter((r) => passState(r) === 'disagreeing').length,
+    imageCopy: inPlay.filter((r) =>
+      isStr(r.image_url) && !isStr(r.image_file)).length,
   }
 
   return {
@@ -680,7 +723,8 @@ function printText(report) {
       `${c.reviewRounds} reported rounds`)
     const p = assessment.pending
     out.push(`pending: ${p.secondPass} item(s) awaiting a second gold standard ` +
-      `pass, ${p.adjudication} awaiting adjudication`)
+      `pass, ${p.adjudication} awaiting adjudication, ${p.imageCopy} awaiting a ` +
+      'local image copy')
     out.push('')
     out.push('acceptance criteria')
     for (const cr of assessment.criteria) {
@@ -789,6 +833,46 @@ function selftest() {
       `adjudicated [${asSettled.join('; ')}], states ${states.join(',')}\n`)
     failures++
   }
+
+  // The archive reference has to be checkable without opening the file: named
+  // after its own item, paired with a hash, and absent when there is no separate
+  // image file to copy. A reference pointing at another item's copy would attach
+  // the wrong image to a gold standard, which is worse than having no copy.
+  const hash = 'a'.repeat(64)
+  const withArchive = (over) => validateItem({ ...base, ...over }, 1, new Map(),
+    'inline')
+  const archiveCases = [
+    [{ image_file: `corpus/images/${base.id}.png`, image_sha256: hash }, null],
+    [{ image_file: 'corpus/images/fi-9999.png', image_sha256: hash }, 'image_file'],
+    [{ image_file: 'images/fi-0001.png', image_sha256: hash }, 'image_file'],
+    [{ image_file: `corpus/images/${base.id}.png`, image_sha256: 'ZZ' }, 'image_sha256'],
+    [{ image_file: null, image_sha256: hash }, 'image_sha256'],
+    [{ image_url: null, image_file: `corpus/images/${base.id}.png`,
+      image_sha256: hash }, 'no separate image file'],
+  ]
+  let archiveOk = true
+  archiveCases.forEach(([over, want], i) => {
+    const errs = withArchive(over).filter((e) => e.includes('image'))
+    const got = want === null ? errs.length === 0 : errs.some((e) => e.includes(want))
+    if (!got) {
+      archiveOk = false
+      process.stdout.write(`FAIL image archive case ${i}: [${errs.join('; ')}], ` +
+        `expected ${want ?? 'no error'}\n`)
+    }
+  })
+  // And an accepted item without its copy fails a criterion rather than the
+  // schema, so the loop keeps going and fetches it instead of stopping dead.
+  const archivedCrit = (over) => assess([{ ...base, status: 'accepted', ...over }],
+    [], []).criteria.find((c) => c.name === 'local image copies').met
+  if (archivedCrit({}) !== false ||
+      archivedCrit({ image_file: `corpus/images/${base.id}.png`,
+        image_sha256: hash }) !== true ||
+      archivedCrit({ image_url: null }) !== true) {
+    archiveOk = false
+    process.stdout.write('FAIL local image copies criterion\n')
+  }
+  if (archiveOk) process.stdout.write('PASS image archive references checked\n')
+  else failures++
 
   // An empty corpus must not claim the goals are met.
   const empty = assess([], [], [])

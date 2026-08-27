@@ -39,8 +39,12 @@ const PROJECT = resolve(HERE, '..')
 // item schema later cannot leak into the second pass by default. `item_id` is
 // here because the pass has to be attributable; everything else is context a
 // person looking at the page would have.
-const CONTEXT_FIELDS = ['item_id', 'page_url', 'image_url', 'implementation',
-  'element_role', 'element_html', 'surrounding_text', 'destination']
+// `image_file` is the local copy, named after the item, so it lets the second
+// pass look at the image even if the page has changed and it gives away nothing:
+// the file name is the item id, not the site's own name for the image.
+const CONTEXT_FIELDS = ['item_id', 'page_url', 'image_url', 'image_file',
+  'implementation', 'element_role', 'element_html', 'surrounding_text',
+  'destination']
 
 // Items in these statuses are still in play. A rejected item is not worth a
 // second pass, and an accepted one already has what it needs.

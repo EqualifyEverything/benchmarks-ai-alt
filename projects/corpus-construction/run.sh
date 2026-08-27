@@ -8,6 +8,7 @@
 #   ./run.sh --max-rounds 3   stop after three rounds regardless
 #   ./run.sh --target 100     work toward 100 accepted items, not 250
 #   ./run.sh --status         report progress and exit, running no agents
+#   ./run.sh --images         archive any missing image copies, then verify them
 #   ./run.sh --prompt seek    print the next round's prompt and exit
 #   ./run.sh --merge-passes 3 merge round 3's second gold standard passes
 #   ./run.sh --apply 3        apply round 3 verdicts, after a hand-run round
@@ -39,10 +40,12 @@
 # search makes the seeking agent much more effective but is not required.
 #
 # Environment:
-#   AGENT_CMD     command that runs one agent turn. Default: an adapter.
-#   AGENT_FLAGS   extra arguments for it. Default: none.
-#   MAX_ROUNDS    same as --max-rounds. Default: 10
-#   TARGET        same as --target. Default: corpus/target.txt, else 250
+#   AGENT_CMD        command that runs one agent turn. Default: an adapter.
+#   AGENT_FLAGS      extra arguments for it. Default: none.
+#   MAX_ROUNDS       same as --max-rounds. Default: 10
+#   TARGET           same as --target. Default: corpus/target.txt, else 250
+#   IMAGE_FETCH_CMD  command that writes an image URL's bytes to standard output,
+#                    for example 'curl -sSL'. Default: Node's built-in fetch.
 #
 # Every round is checked by its artefacts, not by the agent's exit code: an
 # agent that exits zero without writing its files stops the loop.
@@ -54,10 +57,12 @@ set -u
 
 PROJECT="$(cd "$(dirname "$0")" && pwd)"
 CORPUS="$PROJECT/corpus/functional-images.jsonl"
+IMAGES="$PROJECT/corpus/images"
 ROUNDS="$PROJECT/rounds"
 VALIDATE="$PROJECT/tools/validate.mjs"
 APPLY="$PROJECT/tools/apply-verdicts.mjs"
 SECOND="$PROJECT/tools/second-pass.mjs"
+FETCH="$PROJECT/tools/fetch-images.mjs"
 
 ADAPTERS="${ADAPTERS:-$PROJECT/adapters}"
 
@@ -79,12 +84,15 @@ while [ $# -gt 0 ]; do
     --max-rounds) MAX_ROUNDS="${2:-}"; shift; shift ;;
     --target) TARGET="${2:-}"; shift; shift ;;
     --status) MODE=status; shift ;;
+    --images) MODE=images; shift ;;
     --selftest) MODE=selftest; shift ;;
     --next-round) MODE=next-round; shift ;;
     --prompt) MODE=prompt; ROLE_ARG="${2:-}"; shift; shift ;;
     --apply) MODE=apply; APPLY_ROUND="${2:-}"; shift; shift ;;
     --merge-passes) MODE=merge; MERGE_ROUND="${2:-}"; shift; shift ;;
-    -h|--help) sed -n '2,51p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)
+      awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"
+      exit 0 ;;
     *) echo "run.sh: unknown argument \"$1\"" >&2; exit 3 ;;
   esac
 done
@@ -380,6 +388,30 @@ apply_round() {
   esac
 }
 
+# Copy every image the corpus records into corpus/images/, then check that the
+# copies already there still match their recorded hashes. A URL that no longer
+# resolves is an ordinary outcome and does not stop the round: the item simply
+# cannot be accepted until a copy exists. A copy that changed under us does stop
+# it, because every score taken from that item rests on those bytes.
+archive_images() {
+  say "archiving image copies"
+  node "$FETCH" --corpus "$CORPUS" --images "$IMAGES"
+  case $? in
+    0) ;;
+    1) say ""
+       say "Those items keep their image URL and cannot be accepted until a copy"
+       say "exists. The next round can try again." ;;
+    *) say "Refused to archive images, see above. Stopping."
+       exit 2 ;;
+  esac
+  if ! node "$FETCH" --verify --corpus "$CORPUS" --images "$IMAGES"; then
+    say ""
+    say "The archive no longer matches the corpus, listed above. Stopping: an"
+    say "item whose copy changed cannot be scored against what was reviewed."
+    exit 2
+  fi
+}
+
 # Write the blind second pass input for a round. Returns 0 when there is work to
 # do, 1 when no item is waiting for a second pass, and stops the run if the tool
 # refuses. Every message goes to standard error so --prompt can print a prompt on
@@ -410,6 +442,10 @@ merge_passes() {
 
 case "$MODE" in
   status) check; exit $? ;;
+  images)
+    archive_images
+    rule
+    check; exit $? ;;
   merge)
     merge_passes "$MERGE_ROUND"
     rule
@@ -423,6 +459,10 @@ case "$MODE" in
         "seeking agent" "$status_text" seek)"
     elif [ "$ROLE_ARG" = second-pass ]; then
       round="$(pending_review_round)"
+      # Archive first, so the extracted context can point the second pass at a
+      # local copy instead of a URL that may already have moved. Everything this
+      # says goes to standard error, because standard output is the prompt.
+      archive_images >&2
       if ! extract_passes "$round"; then
         say "Nothing is waiting for a second gold standard pass, so this turn" >&2
         say "can be skipped. Next: ./run.sh --prompt review" >&2
@@ -452,6 +492,11 @@ case "$MODE" in
     exit 0 ;;
   apply)
     candidates="$(count_status candidate)"
+    # Archive before promoting, not after: an item with no local copy of its
+    # image cannot be accepted, and refusing the whole round for that would waste
+    # a hand-run round's review.
+    archive_images
+    rule
     apply_round "$APPLY_ROUND" "$candidates"
     rule
     check; rc=$?
@@ -474,12 +519,24 @@ if [ "$MODE" = selftest ]; then
   rule
   node "$SECOND" --selftest || exit 3
   rule
+  node "$FETCH" --selftest || exit 3
+  rule
 
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   proj="$tmp/project"
   mkdir -p "$proj/corpus" "$proj/rounds" "$proj/tools" "$proj/directives" "$tmp/bin"
-  cp "$VALIDATE" "$APPLY" "$SECOND" "$proj/tools/"
+  cp "$VALIDATE" "$APPLY" "$SECOND" "$FETCH" "$proj/tools/"
+
+  # Image retrieval for the loop cases below. Every URL in the scratch corpora
+  # uses a reserved example domain, so nothing is reachable and nothing should be
+  # reached: this stands in for the network and always serves the same SVG.
+  cat > "$tmp/bin/stub-fetch" <<'FETCHER'
+#!/usr/bin/env bash
+printf '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+FETCHER
+  chmod +x "$tmp/bin/stub-fetch"
+  export IMAGE_FETCH_CMD="$tmp/bin/stub-fetch"
   cp -R "$PROJECT/tools/fixtures" "$proj/tools/"
   cp "$0" "$proj/run.sh"
   cp "$PROJECT"/directives/*.md "$proj/directives/"
@@ -593,7 +650,8 @@ for (const [subtype, category, count] of subtypes) {
       id: `fi-${String(n).padStart(4, '0')}`,
       status: 'accepted', round_added: 1, category, subtype,
       page_url: `https://${domain}/page/${n}`, domain,
-      image_url: `https://${domain}/i/${n}.svg`, implementation: 'img',
+      image_url: `https://${domain}/i/${n}.svg`,
+      image_file: null, image_sha256: null, implementation: 'img',
       element_role: 'button',
       element_html: `<button><img src="/i/${n}.svg" alt="x"></button>`,
       surrounding_text: empty ? `Synthetic action ${n}` : '',
@@ -830,8 +888,9 @@ GEN
     const fs = require("fs")
     const rec = JSON.parse(fs.readFileSync(process.argv[1], "utf8")
       .trim().split("\n")[0])
-    const allowed = ["item_id", "page_url", "image_url", "implementation",
-      "element_role", "element_html", "surrounding_text", "destination"]
+    const allowed = ["item_id", "page_url", "image_url", "image_file",
+      "implementation", "element_role", "element_html", "surrounding_text",
+      "destination"]
     process.stdout.write(Object.keys(rec)
       .filter((k) => !allowed.includes(k)).join(",") || "none")
   ' "$input")"
@@ -903,6 +962,37 @@ LAZY
     fail "--target: exit $rc, first run: $out"
   fi
 
+  # 17. Each round copies the images it can reach into corpus/images/ and links
+  #     the copy from the record, so the corpus survives the page changing. A copy
+  #     that changes afterwards stops the loop, because the item was reviewed
+  #     against the bytes that were there.
+  rm -f "$proj"/rounds/*
+  rm -rf "$proj/corpus/images"
+  cp "$proj/tools/fixtures/valid-item.jsonl" "$proj/corpus/functional-images.jsonl"
+  out="$(cd "$proj" && AGENT_CMD="$tmp/bin/stub-agent" AGENT_FLAGS= \
+    ./run.sh --max-rounds 1 2>&1)"
+  linked="$(node -e '
+    const fs = require("fs")
+    const item = fs.readFileSync(process.argv[1], "utf8").trim().split("\n")
+      .map(JSON.parse).find((r) => r.id === "fi-0001")
+    process.stdout.write(`${item.image_file} ${(item.image_sha256 || "").length}`)
+  ' "$proj/corpus/functional-images.jsonl")"
+  if [ "$linked" = "corpus/images/fi-0001.svg 64" ] && \
+      [ -s "$proj/corpus/images/fi-0001.svg" ]; then
+    pass "the loop archives images and links the copies"
+  else
+    fail "archive linked \"$linked\""
+    say "$out"
+  fi
+
+  printf 'tampered\n' >> "$proj/corpus/images/fi-0001.svg"
+  out="$(cd "$proj" && ./run.sh --images 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'hashes to'; then
+    pass "a changed image copy is caught, not blessed"
+  else
+    fail "tampered copy exited $rc: $out"
+  fi
+
   rule
   if [ "$fails" -eq 0 ]; then say "loop self-test passed"; exit 0; fi
   say "loop self-test failed, $fails case(s)"
@@ -956,6 +1046,18 @@ while [ "$round" -le "$last" ]; do
     say ""
     say "The seeking agent wrote records the validator rejects. Stopping so the"
     say "schema errors above can be fixed."
+    exit 2
+  fi
+
+  # Copy the images before the second pass, so its input can point at a local
+  # file rather than a URL that may already have moved.
+  say ""
+  archive_images
+  status_text="$(check)"; rc=$?
+  if [ "$rc" -eq 2 ] && [ -f "$CORPUS" ]; then
+    say "$status_text"
+    say ""
+    say "Archiving the images left schema errors behind. Stopping."
     exit 2
   fi
 

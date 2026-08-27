@@ -27,6 +27,10 @@ Each item must record:
 - Where the image lives, and proof that it was really there. The page URL, the
   image URL, the verbatim markup of the image and its interactive ancestor, and
   the date it was retrieved.
+- The image itself. A local copy under `../corpus/images/`, named after the item,
+  with its SHA-256 recorded. Written by `../tools/fetch-images.mjs`, never by an
+  agent. An item with an image URL and no copy cannot be accepted, because the
+  day its page changes there is nothing left to score.
 - What the image does. The interactive element type, and the destination or
   action it triggers.
 - What surrounds it. The verbatim visible text inside and adjacent to the
@@ -133,8 +137,10 @@ targets keep the corpus from filling up with icons any model can label.
   barrier.
 - Respect `robots.txt` and site terms. If a site disallows retrieval, skip it
   and record nothing.
-- Do not redistribute the image files. Record the URL, the context, and the
-  metadata. The images stay where they are.
+- Do not republish the image files. One local copy per item is kept under
+  `../corpus/images/` so the benchmark can be re-run and audited after the source
+  page changes; that archive is a working copy, not a distribution. Published
+  results cite each image by URL, with the context and the metadata.
 - Record a provenance note for each item covering the basis for citing it in
   published benchmark results.
 - Both the image URL and the page URL must resolve at the time of collection.
@@ -160,7 +166,8 @@ corpus file and the two most recent review reports:
 2. Every difficulty and discrimination target is met.
 3. Every source diversity target is met.
 4. Every accepted item has two agreeing independent gold standards, or a
-   recorded adjudication.
+   recorded adjudication, and a local copy of its image matching the recorded
+   hash.
 5. At least 95 percent of accepted items carry no unresolved blocking
    finding. A blocking finding stays open until a later review of that same item
    clears it, so it cannot age out simply because the loop moved on.

@@ -33,9 +33,10 @@ file on GitHub. They are not the paths to write to.
 destroys the only thing this turn produces.
 
 The input file was extracted by `tools/second-pass.mjs --extract` precisely so
-you would not have to. It carries the page URL, the image URL, the
-implementation, the interactive element's role, the verbatim markup, the
-surrounding visible text, and what the control does. It deliberately does not
+you would not have to. It carries the page URL, the image URL, the local copy of
+the image, the implementation, the interactive element's role, the verbatim
+markup, the surrounding visible text, and what the control does. It deliberately
+does not
 carry the first pass, its rationale, the difficulty label, the site's own alt
 text as a separate field, or anything else that would tell you what answer is
 expected.
@@ -57,7 +58,13 @@ it looks like corroboration.
 
 ## What to do, per item
 
-Fetch the page if you can. The markup in the input is verbatim and enough to
+Look at the image. When `image_file` is set, that path is a local copy of it, so
+it works even when the page has moved on. Its name is the item id and tells you
+nothing about the answer. When `image_file` is `null` the image has no separate
+file: it is an inline `<svg>` or an icon font glyph, and the markup in the input
+is the whole image.
+
+Fetch the page too if you can. The markup in the input is verbatim and enough to
 work from, but seeing the control in place tells you things a fragment cannot,
 such as whether the adjacent text is genuinely adjacent. Use whatever retrieval
 your tools give you, a fetch or search tool or curl in a shell, and carry on
@@ -132,7 +139,8 @@ reports which items now disagree.
 
 - Never read `corpus/functional-images.jsonl` or the seeking agent's round log
   during this turn.
-- Never edit the corpus. Your output is the JSONL file and the log.
+- Never edit the corpus, and never edit a file in `corpus/images/`. Your output
+  is the JSONL file and the log.
 - Never write a pass for an item that is not in the input file. It will be
   refused, because it cannot have come from the extracted context.
 - Never copy the site's alt text into your answer. Judge the function.

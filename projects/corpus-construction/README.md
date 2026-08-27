@@ -43,9 +43,10 @@ and did nothing.
 
     ./run.sh --selftest
 
-Runs the validator, the promotion tool, and the entire loop against a stub agent
-and a synthetic corpus. No network, no model calls, no cost. Expect three groups
-of `PASS` lines and `loop self-test passed` at the end.
+Runs the validator, the promotion tool, the second pass tool, the image archiver
+and the entire loop against a stub agent and a synthetic corpus. No network, no
+model calls, no cost. Expect five groups of `PASS` lines and `loop self-test
+passed` at the end.
 
     ./run.sh --status
 
@@ -95,11 +96,13 @@ Use `--agent claude` or `--agent codex` if that is your harness, or drop
 
 What happens, in order: the validator reports the current state, the seeking
 agent takes one turn and writes items and a run log, the validator checks that
-output, `tools/second-pass.mjs` extracts the page context of every item holding
-a single gold standard pass, a second agent turn authors a blind second pass
-over that file alone and the tool merges it, the reviewer judges every new
-candidate and writes verdicts and a report, `tools/apply-verdicts.mjs` turns
-those verdicts into statuses, and the validator reports again.
+output, `tools/fetch-images.mjs` copies every image into `corpus/images/` and
+links the copy from its record, `tools/second-pass.mjs` extracts the page
+context of every item holding a single gold standard pass, a second agent turn
+authors a blind second pass over that file alone and the tool merges it, the
+reviewer judges every new candidate and writes verdicts and a report,
+`tools/apply-verdicts.mjs`
+turns those verdicts into statuses, and the validator reports again.
 
 Three turns, not two. The second pass is separate because an agent that has just
 authored a gold standard cannot then author an independent one, and two passes
@@ -126,7 +129,10 @@ be fetched and verified before it is recorded.
   like the first, independence is not working.
 - `corpus/functional-images.jsonl`. The items, one JSON object per line. Run
   `node tools/validate.mjs` for counts against every target, including how many
-  items are waiting for a second pass or an adjudication.
+  items are waiting for a second pass, an adjudication, or a local image copy.
+- `corpus/images/`. One copy of each image, named after its item, which the
+  record links in `image_file`. Open a few: this is what a model will be given,
+  and it is what keeps the item scoreable after the page changes.
 - `rounds/round-01-review.jsonl` and `rounds/round-01-report.md`. The per-item
   verdicts, the corpus-level findings, the accept and reject rates, and the
   `STATUS:` line the loop reads to decide whether to stop.
@@ -220,6 +226,9 @@ one turn, so any harness that can write files here and fetch pages can run it.
 - `corpus/README.md`. The item and review record schemas, and the reason code
   vocabulary.
 - `corpus/functional-images.jsonl`. The corpus. Created by the first round.
+- `corpus/images/`. One local copy of every image the corpus records, named
+  after its item and linked from the record. The one exception to the plain text rule
+  in [../../AGENTS.md](../../AGENTS.md), because it is the artefact under test.
 - `corpus/corrections.md`. Every change made to the corpus by hand rather than
   by a tool, with the reason.
 - `rounds/`. Per-round prompts, run logs, review records, and reports. The audit
@@ -229,6 +238,9 @@ one turn, so any harness that can write files here and fetch pages can run it.
 - `tools/second-pass.mjs`. Extracts the page context for the second pass turn,
   carrying no trace of the first answer, and merges the result back. The wall
   between the two passes.
+- `tools/fetch-images.mjs`. Copies each recorded image into `corpus/images/`,
+  links the copy from its record with a SHA-256, and checks the copies already
+  there against those hashes. The only thing that writes the archive.
 - `tools/apply-verdicts.mjs`. Applies a review round's verdicts to the corpus,
   all or nothing, and refuses any promotion the specification forbids. The only
   thing in the project that changes an item's status.
@@ -241,6 +253,7 @@ one turn, so any harness that can write files here and fetch pages can run it.
 
     ./run.sh --selftest         verify the machinery, no model calls
     ./run.sh --status           progress report, runs no agents
+    ./run.sh --images           archive the images, then check the archive
     ./run.sh --agent NAME       run using adapters/NAME.sh
     ./run.sh --max-rounds 1     one round, then stop
     ./run.sh --target 100       goal of 100 accepted items, not 250
@@ -274,6 +287,9 @@ Validate or promote by hand at any time:
     node tools/apply-verdicts.mjs --round 1
     node tools/second-pass.mjs --extract --round 1
     node tools/second-pass.mjs --apply --round 1
+    node tools/fetch-images.mjs --dry-run
+    node tools/fetch-images.mjs
+    node tools/fetch-images.mjs --verify
 
 
 ## Known limits

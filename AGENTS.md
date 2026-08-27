@@ -35,10 +35,12 @@ any text editor, any terminal, and any screen reader without special software.
 - Use emoji and symbols only when they are the subject under discussion, never
   as decoration and never as the sole carrier of meaning.
 
-The one exception is the benchmark corpus itself: the images under test. They
-are artifacts, never carriers of documentation, and each is recorded in plain
-text with its source URL, taxonomy category, surrounding context, and gold
-standard alt text.
+The one exception is the benchmark corpus itself: the images under test, kept in
+`projects/corpus-construction/corpus/images/`. They are artifacts, never carriers
+of documentation, and each is recorded in plain text with its source URL,
+taxonomy category, surrounding context, and gold standard alt text. One tool
+writes that directory and nothing else may; see
+[its README](projects/corpus-construction/corpus/images/README.md).
 
 
 ## 2. Code is held to the same standard

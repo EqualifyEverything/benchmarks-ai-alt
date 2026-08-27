@@ -338,6 +338,12 @@ following the schema exactly. New items enter with status `candidate`. Never
 mark your own work `accepted`. Promotion happens after review, when
 `tools/apply-verdicts.mjs` writes the reviewer's verdicts into the corpus.
 
+Set `image_file` and `image_sha256` to `null`. Do not download the image yourself
+and do not fill those fields in. `../tools/fetch-images.mjs` copies each image
+into `../corpus/images/`, names the copy after the item, and records the hash; the
+loop runs it after your turn. Writing those fields by hand would mean the recorded
+hash was never checked against a file anyone else can read.
+
 ### 9. Write the run log
 
 Write `../rounds/round-NN-seek.md`, where NN is the zero-padded round number,
@@ -367,6 +373,8 @@ covering:
 - Never copy the site's alt text into the gold standard field. Judge it, in the
   observed alt verdict field.
 - Never promote your own candidates to accepted.
+- Never write `image_file` or `image_sha256`, and never edit a file in
+  `../corpus/images/`. The archive is one tool's output.
 - Never delete or rewrite a rejected record.
 - Never exceed 10 new items from one domain in one round.
 - Stay in plain text, and follow [../../../AGENTS.md](../../../AGENTS.md).

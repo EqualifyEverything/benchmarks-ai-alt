@@ -15,6 +15,11 @@ This directory holds the corpus itself, in plain text.
 - `corrections.md`. Every change made to the corpus by a person rather than by a
   tool, with what changed and why. Out-of-band edits should be rare; the normal
   way to change an item is a review verdict and another round.
+- `images/`. One local copy of every image the corpus records, named after the
+  item, written by `../tools/fetch-images.mjs`. See
+  [images/README.md](images/README.md). The copies are what keep an item
+  scoreable after its page changes, and they are the one exception to the plain
+  text requirement in [../../../AGENTS.md](../../../AGENTS.md).
 
 Records are append-only. Items are never deleted, only given a new status.
 Rejected items stay in the file with their reason codes, because they are
@@ -62,6 +67,16 @@ variants.
 - `image_url`. Absolute `http` or `https` URL of the image file, or `null` when
   the implementation has no separate file. Required to be a URL for `img`,
   `sprite`, `css-background`, `input-image`, and `area` implementations.
+- `image_file`. Path of the local copy of the image, relative to the project
+  directory, as `corpus/images/ID.EXT` where `ID` is this item's own id. `null`
+  when there is no copy: either `image_url` is `null`, so there is no separate
+  file to copy, or the copy has not been made yet. Written by
+  `../tools/fetch-images.mjs` and by nothing else. An accepted item with an
+  `image_url` must have one.
+- `image_sha256`. SHA-256 of that file, 64 lowercase hex characters. `null`
+  exactly when `image_file` is `null`. The validator checks the shape of these two
+  fields; `node ../tools/fetch-images.mjs --verify` checks the bytes on disk
+  against the hash, and the loop runs it every round.
 - `implementation`. One of `img`, `inline-svg`, `icon-font`, `sprite`,
   `css-background`, `input-image`, `area`. What a model would actually be given
   depends on this, so it is not optional.
@@ -113,9 +128,9 @@ reviewer. After the round, `../tools/apply-verdicts.mjs` reads these records and
 writes the item statuses: `accept` becomes `accepted`, `revise` becomes
 `needs-revision`, `reject` becomes `rejected`. It applies a round all or
 nothing, and it refuses to promote an item this schema forbids: a leaky one, one
-with a single gold standard pass, or one whose two passes disagree with no
-adjudication recorded. An item waiting on an adjudication is `revise`, never
-`accept`.
+with a single gold standard pass, one whose two passes disagree with no
+adjudication recorded, or one with an `image_url` and no local copy of the image.
+An item waiting on an adjudication or on a copy is `revise`, never `accept`.
 
 - `item_id`. The `id` of the item reviewed.
 - `round`. Integer, 1 or greater.
@@ -164,6 +179,9 @@ together.
 - `NO-SECOND-PASS`. Fewer than two independent gold standard passes and no
   adjudication, or a `pass-b` that appears in no round's
   `round-NN-second-pass.jsonl` and so cannot have been authored blind.
+- `NO-IMAGE-COPY`. The item has an `image_url` and no local copy in
+  `images/`, or the copy on disk does not match the recorded `image_sha256`.
+  Such an item is `revise`, never `accept`.
 - `LICENSE-UNCLEAR`. Provenance note is inadequate for citation.
 
 
@@ -176,6 +194,8 @@ real corpus data. Executable copies of this and other examples live in
     {"id":"fi-0001","status":"candidate","round_added":1,"category":2,
      "subtype":"action-or-toggle-icon","page_url":"https://example.com/inbox",
      "domain":"example.com","image_url":"https://example.com/i/g12.svg",
+     "image_file":"corpus/images/fi-0001.svg",
+     "image_sha256":"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
      "implementation":"img","element_role":"button",
      "element_html":"<button type=\"button\"><img src=\"/i/g12.svg\" alt=\"gear\"></button>",
      "surrounding_text":"","destination":"Opens the account settings panel",
@@ -186,7 +206,7 @@ real corpus data. Executable copies of this and other examples live in
      "adjudication":null,"difficulty":"standard","dual_purpose":false,
      "leakage_check":"File name g12.svg reveals nothing; answer requires the destination.",
      "leaky":false,"retrieved":"2026-08-27",
-     "provenance_note":"Public page, no login; cited by URL only, image not redistributed."}
+     "provenance_note":"Public page, no login; cited by URL, with a local copy kept for re-runs."}
 
 Records are one line each in the real file. The line breaks above are for
 reading only.

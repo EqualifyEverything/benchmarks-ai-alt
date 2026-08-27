@@ -22,7 +22,15 @@ what follows is what it does and why.
    thinnest coverage gap, then records new candidates.
 3. Validate again. Same gate. This catches the round's own output before the
    reviewer wastes effort on it.
-4. Second pass. Run `node ../tools/second-pass.mjs --extract --round N`, which
+4. Archive the images. Run `node ../tools/fetch-images.mjs`, which copies every
+   image the corpus records into `../corpus/images/`, names each copy after its
+   item, and records the file's SHA-256 in the record. Then
+   `node ../tools/fetch-images.mjs --verify` checks the copies already there
+   against their recorded hashes. A URL that has stopped resolving does not stop
+   the round; the item simply cannot be accepted until a copy exists. A copy whose
+   bytes have changed does stop it, because every judgment about that item was
+   made against the old ones.
+5. Second pass. Run `node ../tools/second-pass.mjs --extract --round N`, which
    writes the page context of every item still holding one gold standard pass,
    and nothing that hints at what that pass said. Then run
    [02-second-pass.md](02-second-pass.md) in its own turn, on that file alone,
@@ -34,18 +42,19 @@ what follows is what it does and why.
    second without reading the first, so a `pass-b` written in the seeking turn
    is agreement by construction. Disagreements that come out of here are the
    point: they are real, and the next round's seeking agent adjudicates them.
-5. Review. Run [03-adversarial-review.md](03-adversarial-review.md). It judges
+6. Review. Run [03-adversarial-review.md](03-adversarial-review.md). It judges
    every candidate, writes review records, and writes the round report with its
    status line. It does not touch the corpus.
-6. Apply the verdicts. Run `node ../tools/apply-verdicts.mjs --round N`. This is
+7. Apply the verdicts. Run `node ../tools/apply-verdicts.mjs --round N`. This is
    the only step that changes an item's status, and it is deterministic: accept
    becomes `accepted`, revise becomes `needs-revision`, reject becomes
    `rejected`. Nothing is written unless every record can be applied, so a
    malformed review round stops the loop instead of half-updating the corpus.
    The tool refuses to promote an item the specification forbids, even on an
-   `accept`: a leaky one, one with a single gold standard pass, or one whose two
-   passes disagree with no adjudication recorded.
-7. Validate a third time, and read the exit code. Zero means every acceptance
+   `accept`: a leaky one, one with a single gold standard pass, one whose two
+   passes disagree with no adjudication recorded, or one whose image was never
+   copied locally.
+8. Validate a third time, and read the exit code. Zero means every acceptance
    criterion is met, and the loop stops. Anything else means another round.
 
 
@@ -99,6 +108,7 @@ From `projects/corpus-construction/`:
 
     ./run.sh --selftest               verify the loop itself, no model calls
     ./run.sh --status                 progress report, runs no agents
+    ./run.sh --images                 archive image copies and check them
     ./run.sh --agent pi               run with a named harness adapter
     ./run.sh --max-rounds 3           run at most three rounds
     ./run.sh                          run until the goals are met, cap 10

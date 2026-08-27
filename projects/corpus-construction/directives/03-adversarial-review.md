@@ -22,6 +22,8 @@ read or write is named relative to it:
 - `rounds/round-NN-seek.md`, the seeking agent's log for this round
 - `rounds/round-NN-second-pass.jsonl` and `rounds/round-NN-second-pass.md`, the
   round's independent second passes and their log, which you read but never edit
+- `corpus/images/`, the local copies of the images, which you look at but never
+  edit; each item's copy is named after the item
 
 Links below that begin with `../` are there so they resolve when reading this
 file on GitHub. They are not the paths to write to.
@@ -64,6 +66,11 @@ blocking defect and record it. Non-blocking defects are all recorded.
 - The recorded surrounding text must match the page.
 - The recorded observed alt value must match the page, including an empty value
   or an absent attribute.
+- The local copy in `../corpus/images/` must be the image the page serves. Open
+  it and compare it with what the page shows. A copy that is a different image, a
+  placeholder, or an error page saved with an image extension makes every later
+  score meaningless, and nobody would notice from the record alone. Code
+  `NO-IMAGE-COPY`.
 
 Provenance failures are blocking without exception. Code `UNVERIFIABLE-SOURCE`
 for what you cannot confirm, `CONTEXT-INACCURATE` for what you can confirm is
@@ -127,6 +134,12 @@ page drift, and say which one you concluded and why.
   settles it rather than asserting a preference. An adjudication that simply
   restates the winning answer leaves the disagreement unresolved. Code
   `NO-RATIONALE`.
+- A local copy of the image, where the item has an `image_url`. Code
+  `NO-IMAGE-COPY` and make it blocking. Such an item is `revise`, never `accept`:
+  `tools/apply-verdicts.mjs` refuses the promotion and stops the round. The
+  required change is not the agent's to make by hand; the copy comes from
+  `./run.sh --images`, which the loop runs each round, so an item still without
+  one has an image URL that no longer serves the image.
 - Provenance note adequate to cite the item in published results. Code
   `LICENSE-UNCLEAR`.
 
@@ -137,8 +150,9 @@ page drift, and say which one you concluded and why.
 - `revise`. Fixable by the seeking agent without recollection. Name the exact
   change required. An item whose two passes disagree with no adjudication
   recorded is always `revise`, never `accept`, and the required change is the
-  adjudication. `tools/apply-verdicts.mjs` refuses such a promotion and stops the
-  loop, so an `accept` there costs the round.
+  adjudication. The same goes for an item with no local copy of its image.
+  `tools/apply-verdicts.mjs` refuses such a promotion and stops the loop, so an
+  `accept` there costs the round.
 - `reject`. Not salvageable. Wrong classification that cannot be re-filed,
   unverifiable provenance, or leakage inherent to the item.
 
@@ -221,8 +235,11 @@ consequential thing you write. Do not write `no` to be agreeable.
   Your verdict is binding and mechanical, which is exactly why the evidence
   statement matters: it is the only record of why an item was promoted.
   The tool will still refuse to promote an item that the schema forbids, such as
-  a leaky one or one with a single gold standard pass, so an accept on such an
-  item stops the loop rather than corrupting the corpus.
+  a leaky one, one with a single gold standard pass, or one with no local copy of
+  its image, so an accept on such an item stops the loop rather than corrupting
+  the corpus.
+- Never edit or replace a file in `corpus/images/`. Those bytes are what the
+  corpus is scored against, and you are the reason to trust them.
 - Never accept an item whose provenance you did not check yourself.
 - Never promote an item you cannot explain the gold standard for.
 - Never soften a blocking finding to help the loop terminate. The loop
