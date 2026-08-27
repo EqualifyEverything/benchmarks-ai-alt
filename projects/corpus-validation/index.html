@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accessibility Image Validator</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <header>
+        <h1>Accessibility Image Validator</h1>
+        <p class="header-subtitle">Evaluate image alt text in our benchmark corpus</p>
+    </header>
+
+    <main id="main-content">
+        <section id="session-controls" aria-label="Session controls">
+            <div class="controls-row">
+                <button id="start-session" type="button">Start New Session</button>
+                <button id="end-session" type="button" disabled>End Session</button>
+            </div>
+        </section>
+
+        <section id="session-status" class="hidden"
+            aria-label="Session progress">
+            <p class="status-line">
+                Session: <strong id="session-id-display"></strong>
+            </p>
+            <p class="status-line" aria-live="polite" aria-atomic="true">
+                <span id="progress-count">0</span>
+                of <span id="total-count">0</span> reviewed
+            </p>
+            <div id="progress-bar" role="progressbar"
+                aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"
+                aria-label="Validation progress">
+                <div id="progress-fill"></div>
+            </div>
+        </section>
+
+        <section id="validation-card" class="hidden"
+            aria-label="Image under review">
+
+            <div class="card-image">
+                <img id="current-image" src="" alt="">
+                <p id="image-placeholder" class="placeholder hidden">
+                    No external image. Evaluate using the context below.
+                </p>
+            </div>
+
+            <div class="card-details" aria-hidden="true">
+                <h2>Alt text under review</h2>
+                <blockquote id="current-alt">
+                </blockquote>
+            </div>
+
+            <details class="card-context">
+                <summary>Context</summary>
+                <dl>
+                    <dt>Source page</dt>
+                    <dd id="context-page"></dd>
+                    <dt>Element role</dt>
+                    <dd id="context-role"></dd>
+                    <dt>Surrounding text</dt>
+                    <dd id="context-surrounding"></dd>
+                </dl>
+            </details>
+
+            <fieldset class="decision-fieldset">
+                <legend>Your evaluation</legend>
+
+                <div class="decision-buttons">
+                    <button id="accept-btn" type="button"
+                        class="btn-accept">Accept</button>
+                    <button id="reject-btn" type="button"
+                        class="btn-reject">Reject</button>
+                </div>
+
+                <div id="reason-group" class="hidden">
+                    <label for="reason-input" id="reason-label">
+                        Reason
+                    </label>
+                    <textarea id="reason-input"
+                        aria-describedby="reason-hint"
+                        rows="4"></textarea>
+                    <p id="reason-hint" class="hint">
+                        Optional.
+                    </p>
+                    <div class="reason-actions">
+                        <button id="submit-btn" type="button">Submit</button>
+                        <button id="cancel-btn" type="button"
+                            class="btn-cancel">Cancel</button>
+                    </div>
+                </div>
+            </fieldset>
+        </section>
+
+        <section id="results" class="hidden" aria-label="Session results">
+            <h2>Session ended</h2>
+            <p id="results-summary"></p>
+            <p>Download your results, then open a GitHub issue and
+                attach or paste the file.</p>
+            <div class="results-actions">
+                <button id="download-results" type="button">
+                    Download results
+                </button>
+                <a id="github-issue-link"
+                    href="https://github.com/EqualifyEverything/benchmarks-ai-alt/issues/new?template=validation-report.md"
+                    target="_blank"
+                    rel="noopener noreferrer">
+                    Open GitHub issue (new tab)
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>
+            Part of the
+            <a href="https://github.com/EqualifyEverything/benchmarks-ai-alt">
+                benchmarks-ai-alt</a> project.
+        </p>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>
