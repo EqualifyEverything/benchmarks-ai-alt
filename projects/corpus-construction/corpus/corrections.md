@@ -66,8 +66,8 @@ existing records predated them.
 Each was backfilled by reading the recorded markup, which is verbatim, and
 computing the name a screen reader would announce:
 
-- 8 items are named by the image's own alt text: fi-0001, fi-0003, fi-0004,
-  fi-0005, fi-0006, fi-0010, fi-0011 by `alt`, and the name is that alt value.
+- 7 items are named by the image's own alt text: fi-0001, fi-0003, fi-0004,
+  fi-0005, fi-0006, fi-0010 and fi-0011. The recorded name is that alt value.
 - fi-0002, fi-0007 and fi-0009 are named by the control's own visible text. In
   fi-0009 the image carries `aria-hidden="true"`, so its alt text contributes
   nothing and the link is named by the span inside it.
