@@ -84,13 +84,27 @@ lowering it is not.
 
 From `projects/corpus-construction/`:
 
+    ./run.sh --selftest               verify the loop itself, no model calls
     ./run.sh --status                 progress report, runs no agents
-    ./run.sh                          run until the goals are met, cap 10
+    ./run.sh --agent pi               run with a named harness adapter
     ./run.sh --max-rounds 3           run at most three rounds
-    ./run.sh --selftest               verify the loop itself, no API calls
+    ./run.sh                          run until the goals are met, cap 10
+
+Which agent runs a round is not part of this directive. A round is one prompt and
+one turn, so any harness that can write files here and retrieve web pages can
+take it. `run.sh` picks one from
+[../adapters/README.md](../adapters/README.md), or takes `AGENT_CMD` for a CLI
+with no adapter.
 
 To run a round by hand instead, open the directive and follow it. The directives
 are the substance; `run.sh` is a convenience that adds nothing but sequencing.
+For a harness with no command line, `./run.sh --prompt seek` prints the prompt to
+paste and `./run.sh --apply N` applies the verdicts afterwards, so a hand-run
+round leaves the same audit trail as an automated one.
+
+The first thing to read is the getting started walkthrough in
+[../README.md](../README.md). It covers what to check by hand after round one,
+which is the part no tool here can do for you.
 
 
 ## What the loop must never do

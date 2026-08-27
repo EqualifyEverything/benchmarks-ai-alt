@@ -60,8 +60,8 @@ Any code in this repository, and any project built inside it:
 - Ships accessible interfaces if it ships an interface at all: semantic HTML,
   keyboard operable, screen reader tested, and never reliant on color alone.
 
-Guidance for AI coding agents working in this repository lives in
-[CLAUDE.md](CLAUDE.md).
+The working rules for this repository, for people and for AI coding agents
+alike, live in [AGENTS.md](AGENTS.md).
 
 
 ## Projects

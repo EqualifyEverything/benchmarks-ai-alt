@@ -205,4 +205,4 @@ consequential thing you write. Do not write `no` to be agreeable.
 - Never promote an item you cannot explain the gold standard for.
 - Never soften a blocking finding to help the loop terminate. The loop
   terminating is not your goal. A sound corpus is.
-- Stay in plain text, and follow [../../../CLAUDE.md](../../../CLAUDE.md).
+- Stay in plain text, and follow [../../../AGENTS.md](../../../AGENTS.md).

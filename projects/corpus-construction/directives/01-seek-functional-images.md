@@ -202,7 +202,7 @@ covering:
 - Never promote your own candidates to accepted.
 - Never delete or rewrite a rejected record.
 - Never exceed 10 new items from one domain in one round.
-- Stay in plain text, and follow [../../../CLAUDE.md](../../../CLAUDE.md).
+- Stay in plain text, and follow [../../../AGENTS.md](../../../AGENTS.md).
 
 If a constraint in directive 00 blocks work you believe the corpus needs, stop
 and write the conflict in your run log. Do not resolve it by relaxing the

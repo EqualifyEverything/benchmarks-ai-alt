@@ -2,24 +2,42 @@
 # Run the corpus construction loop: seek, then adversarially review, repeat
 # until the acceptance criteria in directives/00-corpus-goals.md are met.
 #
-#   ./run.sh                 run until the goals are met or the cap is hit
-#   ./run.sh --max-rounds 3  stop after three rounds regardless
-#   ./run.sh --status        report progress and exit, running no agents
-#   ./run.sh --selftest      exercise the loop with a stub agent, no API calls
+#   ./run.sh                  run until the goals are met or the cap is hit
+#   ./run.sh --agent pi       run the rounds with adapters/pi.sh
+#   ./run.sh --max-rounds 3   stop after three rounds regardless
+#   ./run.sh --status         report progress and exit, running no agents
+#   ./run.sh --prompt seek    print the next round's prompt and exit
+#   ./run.sh --apply 3        apply round 3 verdicts, after a hand-run round
+#   ./run.sh --selftest       exercise the loop with a stub agent, no API calls
 #
-# The loop is deliberately dumb. Every judgment lives in the directives, and
-# every stop condition lives in tools/validate.mjs. This script only sequences
-# them and stops at the right time.
+# The loop is deliberately dumb, and it is harness-neutral. Every judgment lives
+# in the directives, every stop condition lives in tools/validate.mjs, and which
+# agent runs a round is none of this script's business.
+#
+# Choosing a harness:
+#   --agent NAME   run adapters/NAME.sh. See adapters/README.md for the ones
+#                  that ship here and how to add another in about five lines.
+#   AGENT_CMD      any command that takes a prompt and runs one agent turn.
+#   neither        the first adapter whose command is on your PATH.
+#
+# How the prompt reaches the agent: it is written to
+# rounds/round-NN-ROLE-prompt.md and piped on standard input, with PROMPT_FILE,
+# ROUND and ROLE in the environment. If AGENT_CMD or AGENT_FLAGS contains
+# {prompt} or {prompt_file}, that placeholder is substituted instead and
+# standard input is left empty.
+#
+# For a harness with no command line at all, including a chat window, run
+# ./run.sh --prompt seek, paste what it prints, then ./run.sh --apply N when the
+# round's files are written. The loop does not care who wrote them.
+#
+# What a harness must be able to do: read and write files under this project,
+# and retrieve web pages, either with a fetch tool or with curl in a shell. Web
+# search makes the seeking agent much more effective but is not required.
 #
 # Environment:
-#   AGENT_CMD     command used to run one directive. Default: claude
-#   AGENT_FLAGS   flags passed to it. Default: -p --permission-mode acceptEdits
+#   AGENT_CMD     command that runs one agent turn. Default: an adapter.
+#   AGENT_FLAGS   extra arguments for it. Default: none.
 #   MAX_ROUNDS    same as --max-rounds. Default: 10
-#
-# The agent needs web access to do its job. If your permission settings do not
-# already allow it, name the tools in AGENT_FLAGS, for example:
-#   AGENT_FLAGS='-p --permission-mode acceptEdits \
-#     --allowedTools WebSearch WebFetch Read Write Edit'
 #
 # Every round is checked by its artefacts, not by the agent's exit code: an
 # agent that exits zero without writing its files stops the loop.
@@ -35,18 +53,27 @@ ROUNDS="$PROJECT/rounds"
 VALIDATE="$PROJECT/tools/validate.mjs"
 APPLY="$PROJECT/tools/apply-verdicts.mjs"
 
-AGENT_CMD="${AGENT_CMD:-claude}"
-AGENT_FLAGS="${AGENT_FLAGS--p --permission-mode acceptEdits}"
+ADAPTERS="${ADAPTERS:-$PROJECT/adapters}"
+
+AGENT_CMD="${AGENT_CMD:-}"
+AGENT_FLAGS="${AGENT_FLAGS:-}"
 MAX_ROUNDS="${MAX_ROUNDS:-10}"
 MODE=loop
+AGENT_NAME=""
+AGENT_LABEL=""
+ROLE_ARG=""
+APPLY_ROUND=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --agent) AGENT_NAME="${2:-}"; shift; shift ;;
     --max-rounds) MAX_ROUNDS="${2:-}"; shift; shift ;;
     --status) MODE=status; shift ;;
     --selftest) MODE=selftest; shift ;;
     --next-round) MODE=next-round; shift ;;
-    -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --prompt) MODE=prompt; ROLE_ARG="${2:-}"; shift; shift ;;
+    --apply) MODE=apply; APPLY_ROUND="${2:-}"; shift; shift ;;
+    -h|--help) sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "run.sh: unknown argument \"$1\"" >&2; exit 3 ;;
   esac
 done
@@ -55,6 +82,20 @@ case "$MAX_ROUNDS" in
   ''|*[!0-9]*|0) echo "run.sh: --max-rounds needs a whole number of 1 or more" >&2
     exit 3 ;;
 esac
+
+if [ "$MODE" = prompt ]; then
+  case "$ROLE_ARG" in
+    seek|review) ;;
+    *) echo "run.sh: --prompt takes seek or review" >&2; exit 3 ;;
+  esac
+fi
+
+if [ "$MODE" = apply ]; then
+  case "$APPLY_ROUND" in
+    ''|*[!0-9]*|0) echo "run.sh: --apply needs the round number to apply" >&2
+      exit 3 ;;
+  esac
+fi
 
 say() { printf '%s\n' "$*"; }
 rule() { say "------------------------------------------------------------"; }
@@ -118,32 +159,204 @@ require_artefact() {
   fi
 }
 
-# Run one directive as one agent turn. The directive file is the instruction;
-# we only say which round it is and hand over the current status.
-run_directive() {
-  directive="$1"; round="$2"; role="$3"; status_text="$4"
-  prompt="You are running round ${round} of the corpus construction loop for
-the AI alt text benchmark, in the role of the ${role}.
+# Which command does an adapter drive? Its `# RUNS:` line, so the adapter file
+# stays the single source of truth and this script needs no list of harnesses.
+adapter_command() {
+  sed -n 's/^# RUNS: *//p' "$1" | head -1
+}
+
+adapter_names() {
+  for path in "$ADAPTERS"/*.sh; do
+    [ -e "$path" ] || continue
+    name="$(basename "$path" .sh)"
+    printf '  --agent %-10s %s\n' "$name" "$(adapter_command "$path")"
+  done
+}
+
+# Decide what runs a round: a named adapter, an explicit AGENT_CMD, or the first
+# adapter whose command is installed. Sets AGENT_CMD and AGENT_LABEL.
+resolve_agent() {
+  if [ -n "$AGENT_NAME" ]; then
+    if [ ! -f "$ADAPTERS/$AGENT_NAME.sh" ]; then
+      say "run.sh: no adapter named \"$AGENT_NAME\". Available:"
+      adapter_names
+      say ""
+      say "Adding one takes about five lines. See adapters/README.md."
+      exit 3
+    fi
+    AGENT_CMD="$ADAPTERS/$AGENT_NAME.sh"
+    AGENT_LABEL="$AGENT_NAME adapter"
+    return 0
+  fi
+  if [ -n "$AGENT_CMD" ]; then
+    AGENT_LABEL="$AGENT_CMD $AGENT_FLAGS"
+    return 0
+  fi
+  for path in "$ADAPTERS"/*.sh; do
+    [ -e "$path" ] || continue
+    cmd="$(adapter_command "$path")"
+    [ -n "$cmd" ] || continue
+    if command -v "$cmd" >/dev/null 2>&1; then
+      AGENT_CMD="$path"
+      AGENT_LABEL="$(basename "$path" .sh) adapter, $cmd found on PATH"
+      return 0
+    fi
+  done
+  say "run.sh: no agent to run the rounds with. Options:"
+  say ""
+  adapter_names
+  say ""
+  say "  AGENT_CMD='mycli --headless' ./run.sh    any command that takes a"
+  say "                                           prompt and runs one turn"
+  say "  ./run.sh --prompt seek                   print the prompt instead, for"
+  say "                                           a harness with no CLI"
+  say ""
+  say "See adapters/README.md for the contract. It is short."
+  exit 3
+}
+
+prompt_file() {
+  printf '%s/round-%02d-%s-prompt.md\n' "$ROUNDS" "$1" "$2"
+}
+
+# The prompt for one round in one role. Deliberately thin: the directive is the
+# instruction, and this only says which round it is, where the files are, and
+# what the corpus looks like right now.
+write_prompt() {
+  directive="$1"; round="$2"; role="$3"; status_text="$4"; slug="$5"
+  file="$(prompt_file "$round" "$slug")"
+  mkdir -p "$ROUNDS"
+  cat > "$file" <<PROMPT
+You are running round ${round} of the corpus construction loop for the AI alt
+text benchmark, in the role of the ${role}.
+
+The project directory is ${PROJECT}. Work from there, and read and write files
+relative to it.
 
 Read ${PROJECT}/directives/${directive} and follow it exactly, including every
 file it tells you to read first and every file it tells you to write. Use the
-zero-padded round number ${round} in any file name that calls for it.
+zero-padded round number $(printf '%02d' "$round") in every file name that calls
+for it.
+
+This work needs real web pages. Use whatever retrieval your tools give you: a
+fetch or search tool if you have one, otherwise curl in a shell. Record nothing
+you have not retrieved yourself.
 
 Current corpus status from tools/validate.mjs:
 
 ${status_text}
 
 Do the work now. Do not ask for confirmation, and do not stop to summarise
-before you have written your output files."
+before you have written your output files.
+PROMPT
+  printf '%s\n' "$file"
+}
 
-  # AGENT_FLAGS is intentionally word-split.
+# Run one directive as one agent turn.
+#
+# The prompt goes to the agent on standard input, with its path in PROMPT_FILE,
+# because every command line disagrees about flags and almost none disagree
+# about stdin. A harness that wants the prompt as an argument says so with a
+# {prompt} or {prompt_file} placeholder in AGENT_CMD or AGENT_FLAGS.
+run_directive() {
+  directive="$1"; round="$2"; role="$3"; status_text="$4"; slug="$5"
+  file="$(write_prompt "$directive" "$round" "$role" "$status_text" "$slug")"
+
+  argv=()
+  placeholder=no
+  # AGENT_CMD and AGENT_FLAGS are intentionally word-split.
   # shellcheck disable=SC2086
-  ( cd "$PROJECT" && $AGENT_CMD $AGENT_FLAGS "$prompt" )
+  for word in $AGENT_CMD $AGENT_FLAGS; do
+    case "$word" in
+      *'{prompt_file}'*)
+        argv+=("${word//\{prompt_file\}/$file}"); placeholder=yes ;;
+      *'{prompt}'*)
+        argv+=("${word//\{prompt\}/$(cat "$file")}"); placeholder=yes ;;
+      *) argv+=("$word") ;;
+    esac
+  done
+
+  if [ "$placeholder" = yes ]; then
+    ( cd "$PROJECT" && PROMPT_FILE="$file" ROUND="$round" ROLE="$slug" \
+      "${argv[@]}" < /dev/null )
+  else
+    ( cd "$PROJECT" && PROMPT_FILE="$file" ROUND="$round" ROLE="$slug" \
+      "${argv[@]}" < "$file" )
+  fi
+}
+
+# The round waiting to be reviewed: the highest one that was seeked but never
+# reviewed. Matters for a hand-run round, where the two halves are separate
+# commands and can be hours apart.
+pending_review_round() {
+  target=0
+  for name in "$ROUNDS"/round-*-seek.md; do
+    [ -e "$name" ] || continue
+    base="$(basename "$name")"
+    base="${base#round-}"
+    base="${base%-seek.md}"
+    base="$(printf '%s' "$base" | sed 's/^0*//')"
+    [ -n "$base" ] || base=0
+    reviewed="$(printf '%s/round-%02d-review.jsonl' "$ROUNDS" "$base")"
+    if [ ! -e "$reviewed" ] && [ "$base" -gt "$target" ]; then target="$base"; fi
+  done
+  if [ "$target" -gt 0 ]; then echo "$target"; else next_round; fi
+}
+
+# Apply one round's verdicts, then report. Used by the loop and by --apply, so a
+# hand-run round is promoted by exactly the same code as an automated one.
+apply_round() {
+  round="$1"; candidates="$2"
+  say "applying round $round verdicts"
+  node "$APPLY" --round "$round" --corpus "$CORPUS" --rounds "$ROUNDS"
+  case $? in
+    0) ;;
+    1) if [ "$candidates" -gt 0 ]; then
+         say "No verdicts to apply in round $round, though the corpus held"
+         say "$candidates candidate item(s). That is a problem with the round, not"
+         say "a reason to continue."
+         exit 2
+       fi
+       say "No candidates were pending, so there were no verdicts to apply." ;;
+    *) say "Refused to apply round $round verdicts, see above. Stopping."
+       exit 2 ;;
+  esac
 }
 
 case "$MODE" in
   status) check; exit $? ;;
   next-round) next_round; exit 0 ;;
+  prompt)
+    status_text="$(check 2>&1)"
+    if [ "$ROLE_ARG" = seek ]; then
+      round="$(next_round)"
+      file="$(write_prompt 01-seek-functional-images.md "$round" \
+        "seeking agent" "$status_text" seek)"
+    else
+      round="$(pending_review_round)"
+      file="$(write_prompt 02-adversarial-review.md "$round" \
+        "adversarial reviewer" "$status_text" review)"
+    fi
+    say "Round $round, $ROLE_ARG. Prompt written to $file" >&2
+    say "Give this to any agent that can read and write files here:" >&2
+    say "" >&2
+    cat "$file"
+    if [ "$ROLE_ARG" = review ]; then
+      say "" >&2
+      say "When it has written its files: ./run.sh --apply $round" >&2
+    fi
+    exit 0 ;;
+  apply)
+    candidates="$(count_status candidate)"
+    apply_round "$APPLY_ROUND" "$candidates"
+    rule
+    check; rc=$?
+    if [ "$rc" -eq 0 ]; then
+      rule
+      say "Goals met. The corpus satisfies every acceptance criterion in"
+      say "directives/00-corpus-goals.md."
+    fi
+    exit $rc ;;
 esac
 
 # --- self-test ------------------------------------------------------------
@@ -172,7 +385,8 @@ if [ "$MODE" = selftest ]; then
   cat > "$tmp/bin/stub-agent" <<'STUB'
 #!/usr/bin/env bash
 set -u
-for a in "$@"; do prompt="$a"; done
+prompt="$(cat)"
+[ -n "$prompt" ] || prompt="$*"
 round="$(printf '%s' "$prompt" | sed -n 's/.*running round \([0-9][0-9]*\) .*/\1/p' | head -1)"
 [ -n "$round" ] || round=1
 nn="$(printf '%02d' "$round")"
@@ -358,6 +572,87 @@ GEN
   [ "$rc" -eq 2 ] && pass "failing agent stops the loop" \
     || fail "failing agent exited $rc, expected 2"
 
+  # 7. A named adapter that does not exist is a usage error, not a crash.
+  out="$(cd "$proj" && ./run.sh --agent nonesuch 2>&1)"; rc=$?
+  if [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -q 'no adapter named'; then
+    pass "an unknown --agent name is a usage error"
+  else
+    fail "unknown adapter exited $rc: $out"
+  fi
+
+  # 8. With no agent named and none installed, say so instead of failing
+  #    obscurely on an empty command.
+  out="$(cd "$proj" && ADAPTERS="$tmp/no-adapters" AGENT_CMD= AGENT_FLAGS= \
+    ./run.sh --max-rounds 1 2>&1)"; rc=$?
+  if [ "$rc" -eq 3 ] && printf '%s' "$out" | grep -q 'no agent to run'; then
+    pass "no harness at all is reported, not stumbled into"
+  else
+    fail "missing harness exited $rc: $out"
+  fi
+
+  # 9. An adapter is discovered from its RUNS line and driven with the prompt on
+  #    standard input, which is how every shipped adapter is invoked.
+  rm -f "$proj"/rounds/*
+  cp "$proj/tools/fixtures/valid-item.jsonl" "$proj/corpus/functional-images.jsonl"
+  mkdir -p "$proj/adapters"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '# RUNS: %s\n' "$tmp/bin/stub-agent"
+    printf 'exec "%s"\n' "$tmp/bin/stub-agent"
+  } > "$proj/adapters/stub.sh"
+  chmod +x "$proj/adapters/stub.sh"
+  out="$(cd "$proj" && AGENT_CMD= AGENT_FLAGS= ./run.sh --max-rounds 1 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 1 ] && [ -s "$proj/rounds/round-01-seek.md" ] && \
+      printf '%s' "$out" | grep -q 'stub adapter'; then
+    pass "adapter discovered and driven on standard input"
+  else
+    fail "adapter case exited $rc without a round: $out"
+  fi
+
+  # 10. A harness that wants the prompt as an argument says so with a
+  #     placeholder, and then standard input is left empty.
+  rm -f "$proj"/rounds/*
+  cp "$proj/tools/fixtures/valid-item.jsonl" "$proj/corpus/functional-images.jsonl"
+  out="$(cd "$proj" && AGENT_CMD="$tmp/bin/stub-agent {prompt}" AGENT_FLAGS= \
+    ./run.sh --max-rounds 1 2>&1)"; rc=$?
+  if [ "$rc" -eq 1 ] && [ -s "$proj/rounds/round-01-seek.md" ]; then
+    pass "{prompt} placeholder passes the prompt as an argument"
+  else
+    fail "placeholder case exited $rc without a round: $out"
+  fi
+
+  # 11. The prompt can be printed for a harness with no command line, and it
+  #     names the round and the role.
+  rm -f "$proj"/rounds/*
+  out="$(cd "$proj" && ./run.sh --prompt seek 2>/dev/null)"; rc=$?
+  if [ "$rc" -eq 0 ] && [ -s "$proj/rounds/round-01-seek-prompt.md" ] && \
+      printf '%s' "$out" | grep -q 'role of the seeking agent'; then
+    pass "--prompt writes and prints a round prompt"
+  else
+    fail "--prompt exited $rc: $out"
+  fi
+
+  # 12. A round run by hand is promoted by the same code as an automated one.
+  rm -f "$proj"/rounds/*
+  cp "$proj/tools/fixtures/valid-item.jsonl" "$proj/corpus/functional-images.jsonl"
+  printf 'hand-run\n\nSTATUS: new-blocking-findings=no\n' \
+    > "$proj/rounds/round-01-report.md"
+  {
+    printf '%s' '{"item_id":"fi-0001","round":1,"verdict":"accept",'
+    printf '%s' '"reason_codes":["CLEAN"],"evidence":"Checked the page, the '
+    printf '%s' 'markup and the observed alt by hand.","required_change":null,'
+    printf '%s\n' '"blocking":false}'
+  } > "$proj/rounds/round-01-review.jsonl"
+  out="$(cd "$proj" && ./run.sh --apply 1 2>&1)"; rc=$?
+  promoted="$(grep -c '"status":"accepted"' \
+    "$proj/corpus/functional-images.jsonl" || true)"
+  if [ "$rc" -eq 1 ] && [ "$promoted" -eq 2 ]; then
+    pass "--apply promotes a hand-run round"
+  else
+    fail "--apply exited $rc with $promoted accepted: $out"
+  fi
+
   rule
   if [ "$fails" -eq 0 ]; then say "loop self-test passed"; exit 0; fi
   say "loop self-test failed, $fails case(s)"
@@ -366,9 +661,11 @@ fi
 
 # --- the loop -------------------------------------------------------------
 
+resolve_agent
+
 say "corpus construction loop"
 say "project:     $PROJECT"
-say "agent:       $AGENT_CMD $AGENT_FLAGS"
+say "agent:       $AGENT_LABEL"
 say "max rounds:  $MAX_ROUNDS"
 mkdir -p "$ROUNDS"
 
@@ -395,7 +692,7 @@ while [ "$round" -le "$last" ]; do
 
   say "running the seeking agent"
   if ! run_directive 01-seek-functional-images.md "$round" \
-      "seeking agent" "$status_text"; then
+      "seeking agent" "$status_text" seek; then
     say "seeking agent failed in round $round"
     exit 2
   fi
@@ -414,7 +711,7 @@ while [ "$round" -le "$last" ]; do
 
   say "running the adversarial reviewer"
   if ! run_directive 02-adversarial-review.md "$round" \
-      "adversarial reviewer" "$status_text"; then
+      "adversarial reviewer" "$status_text" review; then
     say "adversarial reviewer failed in round $round"
     exit 2
   fi
@@ -430,20 +727,7 @@ while [ "$round" -le "$last" ]; do
   # Statuses change here and nowhere else. The seeking agent may not promote its
   # own work and the reviewer may not touch the corpus, so the verdicts are
   # applied mechanically from the review records.
-  say "applying round $round verdicts"
-  node "$APPLY" --round "$round" --corpus "$CORPUS" --rounds "$ROUNDS"
-  case $? in
-    0) ;;
-    1) if [ "$candidates" -gt 0 ]; then
-         say "No verdicts to apply in round $round, though the corpus held"
-         say "$candidates candidate item(s). That is a problem with the round, not"
-         say "a reason to continue."
-         exit 2
-       fi
-       say "No candidates were pending, so there were no verdicts to apply." ;;
-    *) say "Refused to apply round $round verdicts, see above. Stopping."
-       exit 2 ;;
-  esac
+  apply_round "$round" "$candidates"
 
   rule
   check; rc=$?

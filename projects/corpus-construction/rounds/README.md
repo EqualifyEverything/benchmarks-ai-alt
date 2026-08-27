@@ -1,9 +1,13 @@
 # Rounds
 
 One round is one pass of the loop: the seeking agent works, then the
-adversarial reviewer judges. Each round leaves three files here, all plain text,
-all committed. Together they are the audit trail for how the corpus was built.
+adversarial reviewer judges. Each round leaves the files below here, all plain
+text, all committed. Together they are the audit trail for how the corpus was
+built.
 
+- `round-NN-seek-prompt.md` and `round-NN-review-prompt.md`. Exactly what each
+  agent was told, written by `run.sh` before the agent runs. A round can be
+  rerun, rerun with a different harness, or run by hand from these.
 - `round-NN-seek.md`. The seeking agent's run log. Which target it was closing,
   which search strategies it used and what each yielded, what it dropped and
   why, revisions applied from the previous review, and updated counts.

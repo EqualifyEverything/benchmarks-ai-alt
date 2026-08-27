@@ -2,10 +2,11 @@
 
 Each subdirectory here is one project in the benchmark effort. A project owns a
 question, its directives, its data, and its own README. Projects are meant to be
-runnable by a person or by an AI agent in a harness such as Claude Code.
+runnable by a person, or by an AI agent in any harness that can read and write
+plain text files. No project depends on a particular agent or vendor.
 
 Every project follows the repository requirements in
-[../CLAUDE.md](../CLAUDE.md): plain text only, accessibility first.
+[../AGENTS.md](../AGENTS.md): plain text only, accessibility first.
 
 
 ## Current projects
