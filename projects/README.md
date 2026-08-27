@@ -13,8 +13,8 @@ Every project follows the repository requirements in
 
 - [corpus-construction](corpus-construction/). Build the corpus of images, page
   context, and gold standard alt text that the benchmark scores against.
-  Starting with functional images. Status: active, 12 items collected in round
-  one, none accepted yet.
+  Starting with functional images. Status: active, three rounds run, 31 items
+  collected and 11 accepted against a run goal of 100.
 
 
 ## Adding a project
