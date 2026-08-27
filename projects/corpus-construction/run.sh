@@ -18,7 +18,11 @@
 #
 # The agent needs web access to do its job. If your permission settings do not
 # already allow it, name the tools in AGENT_FLAGS, for example:
-#   AGENT_FLAGS='-p --permission-mode acceptEdits --allowedTools WebSearch WebFetch Read Write Edit'
+#   AGENT_FLAGS='-p --permission-mode acceptEdits \
+#     --allowedTools WebSearch WebFetch Read Write Edit'
+#
+# Every round is checked by its artefacts, not by the agent's exit code: an
+# agent that exits zero without writing its files stops the loop.
 #
 # Exit codes: 0 goals met, 1 cap reached with goals unmet, 2 a step failed,
 # 3 bad usage or self-test failure.
@@ -42,7 +46,7 @@ while [ $# -gt 0 ]; do
     --status) MODE=status; shift ;;
     --selftest) MODE=selftest; shift ;;
     --next-round) MODE=next-round; shift ;;
-    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "run.sh: unknown argument \"$1\"" >&2; exit 3 ;;
   esac
 done
@@ -61,19 +65,57 @@ check() {
   node "$VALIDATE" --corpus "$CORPUS" --rounds "$ROUNDS"
 }
 
-# Next round number: one past the highest round already reviewed.
+# Next round number: one past the highest round that left any artefact behind.
+# Seek logs count, not just reviews, so a round that died between the two does
+# not get its log overwritten by the next attempt. rounds/ is the audit trail,
+# and a rewritten round file is lost evidence.
 next_round() {
   highest=0
-  for name in "$ROUNDS"/round-*-review.jsonl; do
+  for name in "$ROUNDS"/round-*-review.jsonl "$ROUNDS"/round-*-seek.md; do
     [ -e "$name" ] || continue
     base="$(basename "$name")"
     base="${base#round-}"
     base="${base%-review.jsonl}"
+    base="${base%-seek.md}"
     base="$(printf '%s' "$base" | sed 's/^0*//')"
     [ -n "$base" ] || base=0
     if [ "$base" -gt "$highest" ]; then highest="$base"; fi
   done
   echo $((highest + 1))
+}
+
+# Count corpus items in a given status. Used to tell "nothing to review" apart
+# from "the reviewer did not run".
+count_status() {
+  [ -f "$CORPUS" ] || { echo 0; return 0; }
+  node -e '
+    const fs = require("fs")
+    const [file, want] = process.argv.slice(1)
+    let n = 0
+    for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+      if (line.trim() === "") continue
+      try { if (JSON.parse(line).status === want) n++ } catch {}
+    }
+    process.stdout.write(String(n))
+  ' "$CORPUS" "$1"
+}
+
+# An agent that exits zero having written nothing is the failure mode this loop
+# is most likely to hit in practice: in print mode a denied tool permission
+# looks exactly like a successful turn. Check the artefacts, not the exit code.
+require_artefact() {
+  path="$1"; who="$2"
+  if [ ! -s "$path" ]; then
+    say ""
+    say "The $who exited successfully but did not write $(basename "$path")."
+    say "Nothing was written, so the round did not happen. The usual cause is a"
+    say "denied tool permission: in print mode that looks like a clean exit."
+    say "Check the agent's output above, then name the tools it needs, for"
+    say "example:"
+    say "  AGENT_FLAGS='-p --permission-mode acceptEdits \\"
+    say "    --allowedTools WebSearch WebFetch Read Write Edit' ./run.sh"
+    exit 2
+  fi
 }
 
 # Run one directive as one agent turn. The directive file is the instruction;
@@ -241,6 +283,14 @@ GEN
     || fail "next round was \"$got\", expected 8"
   rm -f "$proj"/rounds/*
 
+  # 2b. A round that seeked but never got reviewed still counts, so its log is
+  #     not overwritten by the next attempt.
+  : > "$proj/rounds/round-09-seek.md"
+  got="$(cd "$proj" && ./run.sh --next-round 2>&1)"
+  [ "$got" = "10" ] && pass "an unreviewed seek round is not reused" \
+    || fail "next round after an unreviewed round 09 was \"$got\", expected 10"
+  rm -f "$proj"/rounds/*
+
   # 3. Complete corpus: the loop must keep going until two consecutive quiet
   #    review rounds, then stop with exit 0. The stub is quiet from round 2, so
   #    a correct loop stops at round 3, not round 2.
@@ -287,6 +337,19 @@ GEN
     fail "schema case ran $ran rounds and exited $rc, expected 0 and exit 2"
   fi
 
+  # 5b. An agent that exits zero without writing anything stops the loop. This
+  #     is what a denied tool permission looks like in print mode.
+  rm -f "$proj"/rounds/*
+  cp "$proj/tools/fixtures/valid-item.jsonl" "$proj/corpus/functional-images.jsonl"
+  out="$(cd "$proj" && AGENT_CMD=true AGENT_FLAGS= ./run.sh --max-rounds 2 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q 'did not write'; then
+    pass "an agent that writes nothing stops the loop"
+  else
+    fail "silent agent exited $rc without the expected message"
+    say "$out"
+  fi
+
   # 6. A failing agent stops the loop instead of spinning.
   rm -f "$proj"/rounds/*
   cp "$proj/tools/fixtures/valid-item.jsonl" "$proj/corpus/functional-images.jsonl"
@@ -328,12 +391,17 @@ while [ "$round" -le "$last" ]; do
   say "$status_text"
   say ""
 
+  nn="$(printf '%02d' "$round")"
+
   say "running the seeking agent"
   if ! run_directive 01-seek-functional-images.md "$round" \
       "seeking agent" "$status_text"; then
     say "seeking agent failed in round $round"
     exit 2
   fi
+  require_artefact "$ROUNDS/round-$nn-seek.md" "seeking agent"
+
+  candidates="$(count_status candidate)"
 
   status_text="$(check)"; rc=$?
   if [ "$rc" -eq 2 ] && [ -f "$CORPUS" ]; then
@@ -350,6 +418,14 @@ while [ "$round" -le "$last" ]; do
     say "adversarial reviewer failed in round $round"
     exit 2
   fi
+  require_artefact "$ROUNDS/round-$nn-report.md" "adversarial reviewer"
+  if [ "$candidates" -gt 0 ] && [ ! -s "$ROUNDS/round-$nn-review.jsonl" ]; then
+    say ""
+    say "The corpus holds $candidates candidate item(s) but the reviewer wrote no"
+    say "review records. Every candidate must be judged, so this round cannot be"
+    say "applied. Read the reviewer's output above before running again."
+    exit 2
+  fi
 
   # Statuses change here and nowhere else. The seeking agent may not promote its
   # own work and the reviewer may not touch the corpus, so the verdicts are
@@ -358,9 +434,13 @@ while [ "$round" -le "$last" ]; do
   node "$APPLY" --round "$round" --corpus "$CORPUS" --rounds "$ROUNDS"
   case $? in
     0) ;;
-    1) say "No verdicts to apply in round $round. The reviewer wrote no usable"
-       say "records, which is a problem with the round, not a reason to continue."
-       exit 2 ;;
+    1) if [ "$candidates" -gt 0 ]; then
+         say "No verdicts to apply in round $round, though the corpus held"
+         say "$candidates candidate item(s). That is a problem with the round, not"
+         say "a reason to continue."
+         exit 2
+       fi
+       say "No candidates were pending, so there were no verdicts to apply." ;;
     *) say "Refused to apply round $round verdicts, see above. Stopping."
        exit 2 ;;
   esac

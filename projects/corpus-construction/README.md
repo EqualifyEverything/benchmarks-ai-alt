@@ -89,6 +89,11 @@ The agent needs web access. If your permission settings do not already allow
 Exit codes: `0` goals met, `1` round cap reached with goals unmet, `2` a step
 failed or the corpus has schema errors, `3` bad usage.
 
+Each round is judged by the files it produced, not by the agent's exit code. An
+agent that exits successfully without writing its round artefacts stops the
+loop with an explanation, because in print mode a denied tool permission looks
+exactly like a clean run.
+
 Validate the corpus directly at any time:
 
     node tools/validate.mjs            human readable
@@ -130,6 +135,10 @@ why the benchmark needs them.
 - The validator checks structure, targets, and internal consistency. It cannot
   check whether a gold standard is correct, or whether a page really says what
   an item claims. Only the reviewer refetching the page can do that.
+- The loop can tell an agent that wrote nothing from one that worked, and a
+  reviewer that skipped every candidate from one with nothing to review. It
+  cannot tell a thorough round from a lazy one. That judgment is the reviewer's,
+  and checking it is the reason round one is read by hand.
 - Coverage targets are a first guess and have not survived contact with the web.
   If a sub-type turns out not to exist in the wild at the volume assumed, that
   is a finding about the taxonomy, to be recorded rather than worked around.

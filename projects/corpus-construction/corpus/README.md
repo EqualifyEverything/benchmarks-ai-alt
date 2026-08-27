@@ -106,7 +106,10 @@ one or one with a single gold standard pass.
   20 characters.
 - `required_change`. String. Required when the verdict is `revise`, stating the
   exact change needed. `null` otherwise.
-- `blocking`. Boolean. Whether the defect blocks acceptance of the item.
+- `blocking`. Boolean. Whether the defect blocks acceptance of the item. An
+  `accept` verdict cannot be blocking: the combination would promote the item
+  and count it as defective at the same time, and no later round could resolve
+  it, because accepted items are not reviewed again.
 
 
 ## Reason code vocabulary

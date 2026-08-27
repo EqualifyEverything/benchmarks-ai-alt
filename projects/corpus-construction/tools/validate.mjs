@@ -367,6 +367,12 @@ function validateReview(rec, line, path) {
     bad(`${id}: \`required_change\` must be null unless the verdict is revise`)
   }
   if (!isBool(rec.blocking)) bad(`${id}: \`blocking\` must be a boolean`)
+  // An accept means no blocking defect was found. The combination would promote
+  // the item and hold it in the 95 percent criterion at the same time, which no
+  // later round can resolve because accepted items are not re-reviewed.
+  else if (rec.verdict === 'accept' && rec.blocking === true) {
+    bad(`${id}: an \`accept\` verdict cannot also be \`blocking\``)
+  }
 
   return errs
 }
@@ -640,6 +646,18 @@ function selftest() {
     }
   } else {
     process.stdout.write('FAIL valid-review.jsonl: fixture missing\n')
+    failures++
+  }
+
+  // An accept that also claims to be blocking is incoherent, and would strand
+  // the item: promoted, yet permanently counted against the clean criterion.
+  const incoherent = validateReview({ item_id: 'fi-0001', round: 1,
+    verdict: 'accept', reason_codes: ['CLEAN'], evidence: 'x'.repeat(21),
+    required_change: null, blocking: true }, 1, 'inline')
+  if (incoherent.some((e) => e.includes('cannot also be'))) {
+    process.stdout.write('PASS blocking accept rejected\n')
+  } else {
+    process.stdout.write('FAIL blocking accept was allowed\n')
     failures++
   }
 

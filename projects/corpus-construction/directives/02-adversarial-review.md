@@ -125,6 +125,10 @@ page drift, and say which one you concluded and why.
 - `reject`. Not salvageable. Wrong classification that cannot be re-filed,
   unverifiable provenance, or leakage inherent to the item.
 
+Set `blocking` to true when the defect must be resolved before the item can be
+part of the corpus. An `accept` is never blocking, and the validator rejects a
+record that claims both.
+
 Every verdict needs at least one reason code and a one-sentence evidence
 statement naming what you checked. A bare verdict is not reviewable and makes
 your own work unauditable. An `accept` takes exactly one code, `CLEAN`, and no
