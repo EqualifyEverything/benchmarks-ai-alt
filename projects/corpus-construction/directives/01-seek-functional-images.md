@@ -62,35 +62,181 @@ in your run log which one you are working on and why.
 
 Do not collect broadly and hope the quotas fill. Fill the thinnest slot first.
 
-### 3. Search deliberately, and vary how you search
+### 3. Find candidates
 
-A single search strategy finds a single kind of page. Rotate strategies across
-rounds and record which ones you used, so later rounds can try what has not
+Two things make a round productive: knowing where the sub-type you need actually
+lives, and varying how you look for it.
+
+Aim for 10 to 25 recorded items in a round, and prefer the low end with better
+verification. A round that records 8 items you are certain of is worth more than
+one that records 40 the reviewer will reject, because rejected items cost the
+reviewer's whole budget and yield nothing.
+
+#### Where each sub-type lives
+
+Each entry names where to look, the markup signature that identifies it, and the
+judgment that makes such an item worth having. The last part matters most. An
+item that requires no judgment fails the discrimination target no matter how
+cleanly it is recorded.
+
+- Linked standalone logos, category 1. Headers and footers of essentially every
+  site, which is why they are easy to over-collect and why the domain limit will
+  bite here first. Signature: an `<a>` whose `href` is `/` or the site root,
+  wrapping an `<img>` or an inline `<svg>`, inside a `<header>` or masthead
+  region. The judgment is seldom "what is this logo". It is whether the control
+  already has an accessible name. Prefer the harder shapes: a logo beside a
+  separate text link to the homepage; two co-branded logos inside one link, such
+  as a university and its hospital system; a logo linking somewhere other than
+  home, such as a campaign microsite pointing at its parent institution; a
+  sponsor or partner logo in a footer, which is usually dual-purpose.
+- Standalone navigational links, category 1. Icon-only navigation: hamburger
+  menus, header search, cart and account icons, footer social media rows,
+  breadcrumb separators that are themselves links, pagination arrows, language
+  switchers, feed icons, app store badges. Signature: an `<a>` wrapping an image
+  with no text node inside it. Social rows are the most over-collected shape
+  here. Prefer pagination and language switching, where naming the destination
+  requires reading the context, and flag icons standing for languages, where
+  competent authors genuinely disagree about naming a language versus a country.
+- Standalone form controls and image buttons, category 2. `<input type="image">`
+  survives mostly in older systems: library catalogues, government forms, legacy
+  search widgets, department pages nobody has rebuilt. Signature: `input` with
+  `type="image"`, or a `<button type="submit">` wrapping a magnifying glass.
+  Also clear-this-field crosses, show and hide password eyes, calendar pickers,
+  captcha reload arrows, attachment clips. The judgment here is usually
+  redundancy: a magnifier inside a control that already reads "Search" is a
+  different answer from the same magnifier alone.
+- Action and toggle icons, category 2. Web applications, documentation sites,
+  dashboards, code hosts. Copy to clipboard, dark mode toggles, play, pause,
+  mute, star and favourite, expand and collapse, sort arrows in table column
+  headers, print, share, edit, delete, pin, filter. Signature: `<button>` or
+  `role="button"` wrapping an image, often near `aria-expanded` or
+  `aria-pressed`. The most valuable are stateful, where the correct alt text
+  depends on the current state and naming the state competes with naming the
+  action. This sub-type fills fastest, and it is where duplicate icon sets pile
+  up, so identify the icon set before recording.
+- Functional non-Unicode emojis, category 3. Platforms that render emoji as
+  images rather than text, where the image is itself a control: forum software
+  with custom emoji, reaction buttons, published chat archives, mailing list
+  archives, issue trackers. Signature: a small `<img>` whose `src` sits under an
+  emoji or sprite path, inside a `<button>` or an `<a>`. Distinguish carefully.
+  An emoji image inside prose is informative or decorative and is out of scope
+  for v0.1. Only ones that trigger something count, and a reaction button that
+  both applies a reaction and displays its count is the shape worth hunting.
+- Linked complex graphics and image maps, category 4. Signature: `usemap=` with
+  a `<map>` and `<area>` children, or an inline `<svg>` whose `<a>` elements
+  carry links. Where they live: campus and site maps, transit diagrams, seating
+  charts, floor plans, choose-your-region selectors, organisational charts,
+  clickable process diagrams, product images with hotspots. This is the rarest
+  sub-type and the hardest quota, and it is worth spending a whole round on.
+  The judgment is layered: the graphic needs a name, each region needs one, and
+  the two must not repeat each other.
+- Structural breaks and reader controls, category 5. Digital publications and
+  reading interfaces: ebook readers, journal article viewers, PDF viewers with
+  an HTML shell, long-form editorial with chapter navigation. Page turn arrows,
+  next and previous chapter, zoom, fullscreen, table of contents toggles,
+  footnote return links, annotation and highlighting tools, and section dividers
+  that carry a link or a state. A divider that is purely ornamental is
+  decorative, not functional, and is out of scope. Record one only where it does
+  something.
+
+#### Vary how you search
+
+A single strategy finds a single kind of page. Rotate across rounds and record
+which ones you used and what each yielded, so a later round can try what has not
 been tried.
-
-Strategies that find different things:
 
 - By interface pattern. Search for the pattern that produces the sub-type, such
   as icon-only pagination controls, sort toggles in data tables, or a linked
   wordmark in a site header.
 - By sector. Government portals, university sites, library catalogues, hospital
-  systems, transit agencies, online storefronts, newsrooms, developer
-  documentation, and web applications each implement controls differently.
-- By platform. Sites built on a common CMS, framework, or icon set share
-  markup, which makes a sub-type easy to find and also easy to over-sample.
-  Watch the domain concentration limit.
+  systems, transit agencies, storefronts, newsrooms, developer documentation,
+  and web applications each implement controls differently.
+- By platform. Sites sharing a CMS, framework, or icon set share markup, which
+  makes a sub-type easy to find and easy to over-sample. Watch the domain and
+  duplication limits, and treat one platform as one seam, not many.
+- By markup. Search for the literal markup, such as `input type="image"` or
+  `usemap`, on code search engines and in indexed HTML. This finds the rare
+  sub-types that pattern searches miss.
 - By document type. Digital books, journal readers, and PDF viewers are where
   structural breaks and reader controls live.
 - By known accessibility work. Sites with published accessibility statements
-  often have deliberate, defensible alt text worth studying, including good
-  examples of a correct empty alt.
-- By failure. Search accessibility audit write-ups, bug trackers, and
-  conformance reports for named examples of bad functional alt text. Those pages
-  point at real items and tell you what the observed alt was.
+  often have deliberate, defensible alt text worth studying, including correct
+  uses of an empty alt attribute.
+- By failure. Accessibility audit write-ups, bug trackers, and conformance
+  reports name real pages and quote the alt text that was there. Those pages
+  point at items and tell you what the observed alt was before you fetch it.
 
-Emoji items need a different approach: look for platforms that render emoji as
-images rather than Unicode text, such as chat and forum software, and find cases
-where the image triggers an action.
+#### When the harness has no search tool
+
+Some harnesses can fetch pages but not search for them. You can still work a
+round: use pages that list pages, and say in your run log that you had no
+search, because a narrower spread of domains that round is a consequence of the
+harness rather than skew you chose.
+
+Starting points that are stable, public, and worth naming:
+
+- The [WAI Functional Images Tutorial](https://www.w3.org/WAI/tutorials/images/functional/)
+  and the [WAI Alt Text Decision Tree](https://www.w3.org/WAI/tutorials/images/decision-tree/).
+  Real markup with deliberate, documented alt text. Useful for calibration, and
+  the pages themselves ship working controls.
+- Published accessibility statements and conformance reports, which name the
+  pages their authors audited.
+- Government and university directory pages, which link to hundreds of sibling
+  sites in the same sector with different implementations.
+- Documentation for icon sets and component libraries, which shows the markup a
+  whole family of real sites is using and names what each icon means. Do not
+  record a documentation demo as a corpus item unless it is a working control on
+  that page.
+
+#### Fetching and extraction
+
+Whatever retrieval you have, the item is judged on what the page actually
+served. If your only tool is a shell, that is sufficient:
+
+    curl -sSL --compressed "$PAGE" -o /tmp/page.html
+    grep -n -o -E '<a [^>]*>[[:space:]]*<(img|svg)[^>]*>' /tmp/page.html
+
+Signatures worth grepping once you have the HTML: `<a` followed by `<img` or
+`<svg`; `<button` followed by an image; `type="image"`; `usemap=`; `<area`;
+`role="button"`; `aria-expanded`; `aria-pressed`; `xlink:href="#` or
+`href="#icon` for sprite references.
+
+Two things to watch:
+
+- Client-rendered pages. If the served HTML has no content, only a script tag
+  and an empty root element, you cannot verify anything from it. Prefer a
+  server-rendered page rather than reconstructing what the browser would build.
+  Where you do record an item from a page whose markup is assembled by script,
+  say so in `notes`, because it changes what a model would be given.
+- Fetch politely. Retrieve only pages you have a reason to retrieve, no more
+  than a few requests per second to one host, and check `robots.txt` before the
+  first fetch of a host:
+
+      curl -sSL "https://$HOST/robots.txt"
+
+#### Hunt the difficulty quotas deliberately
+
+Three targets in directive 00 will not fill themselves, because the items that
+satisfy them are not the items that turn up first.
+
+- Empty alt, at least 15 percent. Look for a visible text label inside the same
+  control as the image. The signature is an `<a>` or `<button>` containing both
+  an image and a text node, which is the opposite of the icon-only shape most
+  of this work chases. Card links with a thumbnail above a headline, nav items
+  with an icon before a word, and social rows where the platform name is written
+  out are all reliable seams.
+- Dual-purpose, at least 10 percent. Promotional banners inside links, sponsor
+  and partner logos, app store badges, book covers linking to a detail page,
+  author avatars linking to a profile, chart thumbnails linking to the full
+  data. The test is whether a user who cannot see it loses content as well as a
+  destination.
+- Ambiguous difficulty, at least 20 percent. An item is ambiguous when two
+  competent authors would write different alt text and both could defend it.
+  Flag icons for language selection, stateful toggles, a logo whose wordmark is
+  part of the image while adjacent text repeats it, and image map regions whose
+  destination is broader than their label are all genuinely contested. Do not
+  label an item ambiguous merely because you were unsure: say what the two
+  readings are, in the rationale, or classify it as standard.
 
 ### 4. Verify every candidate before you record it
 
@@ -107,7 +253,11 @@ For each candidate, confirm all of the following, and drop it if any fails:
 - The image URL and the page URL both resolve.
 - The item is not already in the corpus. Deduplicate on image URL together with
   page URL, and check for near-duplicates: the same icon from the same icon set
-  in the same role adds nothing after the first few.
+  in the same role adds nothing after the first few. Compare the file name stem,
+  the sprite symbol id, the icon font class or ligature name, and for an inline
+  `<svg>` the path data itself. Two sites using one component library will
+  produce byte-identical markup, and that is a duplicate however different the
+  domains are.
 - Retrieval is permitted by `robots.txt` and the site's terms.
 
 Record the markup verbatim. Do not tidy it, reformat it, or reconstruct it from
@@ -182,7 +332,9 @@ Write `../rounds/round-NN-seek.md`, where NN is the zero-padded round number,
 covering:
 
 - Which target you were closing, and why.
-- Which search strategies you used, and what each one yielded.
+- Which search strategies you used, and what each one yielded. Name the
+  retrieval tools you actually had, including whether web search was available,
+  so the reviewer can tell a narrow round from a lazy one.
 - How many candidates you found, verified, and recorded, and how many you
   dropped, with reasons.
 - Revisions applied from the previous review.
