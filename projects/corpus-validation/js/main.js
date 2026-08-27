@@ -158,8 +158,16 @@
         var item = corpus[currentIndex];
 
         // Image
-        if (item.image_url) {
-            els.image.src = item.image_url;
+        var imageSrc = null;
+        if (item.image_file) {
+            // Prefer local downloaded image
+            imageSrc = '../corpus-construction/' + item.image_file;
+        } else if (item.image_url) {
+            imageSrc = item.image_url;
+        }
+
+        if (imageSrc) {
+            els.image.src = imageSrc;
             els.image.alt = item.observed_alt || '';
             els.image.style.display = '';
             hide(els.placeholder);
