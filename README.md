@@ -157,4 +157,4 @@ Context for where functional images sit relative to everything else we may event
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Copyright holder is TBD while the collaboration is being formalized.
