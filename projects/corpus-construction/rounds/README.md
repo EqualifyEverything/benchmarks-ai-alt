@@ -24,9 +24,9 @@ or
     STATUS: new-blocking-findings=no
 
 `tools/validate.mjs` reads that line to evaluate the two-quiet-rounds gate, and
-`run.sh` will not stop the loop without it. A report missing the line is a schema
-error, not a warning, because a silently unreadable status would let the loop run
-forever or stop for the wrong reason.
+`run.sh` will not stop the loop without it. A report missing the line is a
+schema error, not a warning, because a silently unreadable status would let the
+loop run forever or stop for the wrong reason.
 
 Round files are never rewritten after the fact. If a later round overturns an
 earlier finding, the later report says so. The history of what the reviewer got

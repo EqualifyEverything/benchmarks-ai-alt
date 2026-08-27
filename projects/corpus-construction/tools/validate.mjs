@@ -17,7 +17,9 @@
 //
 // No dependencies. Plain text in, plain text out.
 
-import { readFileSync, existsSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdtempSync,
+  rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -117,7 +119,13 @@ function hostOf(url) {
 function readJsonl(path) {
   const errors = []
   const rows = []
-  const text = readFileSync(path, 'utf8')
+  let text
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch (e) {
+    errors.push(`${path}: cannot be read, ${e.code ?? e.message}`)
+    return { rows, errors }
+  }
   text.split('\n').forEach((raw, i) => {
     const line = raw.trim()
     if (line === '') return
@@ -369,15 +377,37 @@ function validateReview(rec, line, path) {
 
 const STATUS_LINE = /^STATUS:\s*new-blocking-findings=(yes|no)\s*$/m
 
+// Round number out of a file name, so ordering is numeric. Sorting these names
+// as strings puts round-10 before round-9, which would make the two-quiet-rounds
+// gate read the wrong pair of reports.
+const roundNumber = (name) => Number(name.match(/^round-(\d+)-/)[1])
+
+function roundFiles(dir, pattern) {
+  let names
+  try {
+    names = readdirSync(dir)
+  } catch {
+    return []
+  }
+  return names
+    .filter((n) => pattern.test(n))
+    .sort((a, b) => roundNumber(a) - roundNumber(b))
+}
+
 function readRounds(roundsDir) {
   const reports = []
   const errors = []
   if (!existsSync(roundsDir)) return { reports, errors }
-  const names = readdirSync(roundsDir)
-    .filter((n) => /^round-\d+-report\.md$/.test(n))
-    .sort()
+  const names = roundFiles(roundsDir, /^round-\d+-report\.md$/)
   for (const name of names) {
-    const text = readFileSync(join(roundsDir, name), 'utf8')
+    let text
+    try {
+      text = readFileSync(join(roundsDir, name), 'utf8')
+    } catch (e) {
+      errors.push(`${join(roundsDir, name)}: cannot be read, ${e.code ?? e.message}`)
+      reports.push({ name, newBlocking: null })
+      continue
+    }
     const m = text.match(STATUS_LINE)
     if (!m) {
       errors.push(`${join(roundsDir, name)}: no ` +
@@ -632,6 +662,32 @@ function selftest() {
     process.stdout.write('PASS latest-review criterion needs a review round\n')
   }
 
+  // Reports must be ordered numerically, not lexicographically: with rounds 9,
+  // 10 and 11 on disk, the gate has to read 10 and 11 as the latest pair.
+  const scratch = mkdtempSync(join(tmpdir(), 'alt-corpus-rounds-'))
+  const writeReport = (n, blocking) => writeFileSync(
+    join(scratch, `round-${n}-report.md`),
+    `stub\n\nSTATUS: new-blocking-findings=${blocking ? 'yes' : 'no'}\n`)
+  writeReport(9, true)
+  writeReport(10, false)
+  writeReport(11, false)
+  const ordered = readRounds(scratch).reports.map((r) => r.name)
+  const orderOk = ordered.join(',') ===
+    'round-9-report.md,round-10-report.md,round-11-report.md'
+  const gateAfterOrder = assess([], [], readRounds(scratch).reports)
+    .criteria.find((c) => c.name === 'two consecutive quiet review rounds').met
+  writeReport(11, true)
+  const gateWhenLatestNoisy = assess([], [], readRounds(scratch).reports)
+    .criteria.find((c) => c.name === 'two consecutive quiet review rounds').met
+  rmSync(scratch, { recursive: true, force: true })
+  if (orderOk && gateAfterOrder === true && gateWhenLatestNoisy === false) {
+    process.stdout.write('PASS round reports ordered numerically\n')
+  } else {
+    process.stdout.write(`FAIL round ordering: [${ordered.join(', ')}], ` +
+      `gate ${gateAfterOrder}, noisy-latest gate ${gateWhenLatestNoisy}\n`)
+    failures++
+  }
+
   // The quiet-rounds gate must need two consecutive quiet rounds.
   const gate = (reports) => assess([], [], reports).criteria
     .find((c) => c.name === 'two consecutive quiet review rounds').met
@@ -670,13 +726,25 @@ function main(argv) {
   let roundsDir = join(PROJECT, 'rounds')
   let asJson = false
 
+  const needsValue = (arg, value) => {
+    if (value === undefined || value.startsWith('--')) {
+      process.stderr.write(`validate.mjs: ${arg} needs a path\n`)
+      return false
+    }
+    return true
+  }
+
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--selftest') return selftest()
     else if (arg === '--json') asJson = true
-    else if (arg === '--corpus') corpusPath = resolve(argv[++i] ?? '')
-    else if (arg === '--rounds') roundsDir = resolve(argv[++i] ?? '')
-    else {
+    else if (arg === '--corpus') {
+      if (!needsValue(arg, argv[i + 1])) return 3
+      corpusPath = resolve(argv[++i])
+    } else if (arg === '--rounds') {
+      if (!needsValue(arg, argv[i + 1])) return 3
+      roundsDir = resolve(argv[++i])
+    } else {
       process.stderr.write(`validate.mjs: unknown argument "${arg}"\n` +
         'usage: validate.mjs [--json] [--corpus FILE] [--rounds DIR] [--selftest]\n')
       return 3
@@ -708,8 +776,7 @@ function main(argv) {
 
   const reviews = []
   if (existsSync(roundsDir)) {
-    const names = readdirSync(roundsDir)
-      .filter((n) => /^round-\d+-review\.jsonl$/.test(n)).sort()
+    const names = roundFiles(roundsDir, /^round-\d+-review\.jsonl$/)
     for (const name of names) {
       const path = join(roundsDir, name)
       const parsed = readJsonl(path)

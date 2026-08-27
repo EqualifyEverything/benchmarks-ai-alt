@@ -8,6 +8,19 @@ Run this directive once per round. One round is one pass of finding, verifying,
 and recording. You do not decide when the corpus is done. The loop does.
 
 
+## Paths
+
+Work from the project directory, `projects/corpus-construction/`. Every file you
+read or write is named relative to it:
+
+- `corpus/functional-images.jsonl`, the corpus
+- `rounds/round-NN-seek.md`, your run log
+- `directives/00-corpus-goals.md`, the specification
+
+Links below that begin with `../` are there so they resolve when reading this
+file on GitHub. They are not the paths to write to.
+
+
 ## Read first, every round
 
 1. [00-corpus-goals.md](00-corpus-goals.md). The specification you are bound
@@ -125,9 +138,11 @@ means the second pass does not read the first.
 
 Where the harness supports subagents, delegate the second pass to a subagent
 given only the image, the context fields, and the criteria, never your answer or
-your rationale. Where it does not, leave the item at one pass and mark it
-`needs-second-pass`. Do not write a second pass yourself after seeing the first
-and call it independent.
+your rationale. Where it does not, leave the item with a single entry in
+`gold_alt_passes` and say so in your run log. A single-pass item stays a
+candidate: the schema forbids promoting it, and the reviewer will code
+`NO-SECOND-PASS` against it. Do not write a second pass yourself after seeing
+the first and call it independent.
 
 Where the two passes disagree, record both and write an adjudication naming the
 reading that wins and why. Disagreements are signal. They are the material that
@@ -138,8 +153,9 @@ shows model developers how alt text professionals actually decide.
 For each item, ask whether the gold standard is recoverable without the image
 and without the page context, from the file name, the URL path, or the site's
 own alt text. If it is, the item cannot discriminate between a model that sees
-and a model that guesses. Mark it `leaky` and exclude it from the accepted set,
-keeping the record.
+and a model that guesses. Set the item's `leaky` field to true and keep the
+record. The schema will not let a leaky item be accepted, and the record
+documents a trap worth knowing about.
 
 An item named `search-icon.svg` whose gold standard is "Search" teaches nothing.
 The same icon inside a control labelled "Search" in text, where the correct

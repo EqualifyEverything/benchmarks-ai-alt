@@ -14,8 +14,8 @@ The benchmark is only as good as the corpus. A deterministic heuristic for what
 good alt text is has to be proved against real examples before any model can be
 scored, and functional images are where the ground truth is clearest. Everything
 here serves one question, taken from the repository
-[README.md](../../README.md): what corpus of functional images and alt text do we
-use to build the gold standard the benchmark scores against?
+[README.md](../../README.md): what corpus of functional images and alt text do
+we use to build the gold standard the benchmark scores against?
 
 
 ## How it works
@@ -29,9 +29,10 @@ Two agents, run in a loop, with a mechanical stop condition.
 - The loop repeats until the corpus meets the acceptance criteria, which include
   two consecutive review rounds that surface no new blocking findings.
 
-Neither agent can declare the work finished. The seeking agent cannot promote its
-own items to accepted, and the reviewer cannot edit the corpus. That separation
-is the only real check in the design, so the directives enforce it explicitly.
+Neither agent can declare the work finished. The seeking agent cannot promote
+its own items to accepted, and the reviewer cannot edit the corpus. That
+separation is the only real check in the design, so the directives enforce it
+explicitly.
 
 
 ## Files
@@ -78,7 +79,8 @@ Then, once a round looks sane:
 The agent needs web access. If your permission settings do not already allow
 `WebSearch` and `WebFetch`, name the tools it may use:
 
-    AGENT_FLAGS='-p --permission-mode acceptEdits --allowedTools WebSearch WebFetch Read Write Edit' ./run.sh
+    AGENT_FLAGS='-p --permission-mode acceptEdits \
+      --allowedTools WebSearch WebFetch Read Write Edit' ./run.sh
 
 Exit codes: `0` goals met, `1` round cap reached with goals unmet, `2` a step
 failed or the corpus has schema errors, `3` bad usage.
@@ -114,10 +116,11 @@ why the benchmark needs them.
 
 - The two independent gold standard passes are only genuinely independent when
   the harness can run the second pass without showing it the first. Where it
-  cannot, items are marked `needs-second-pass` and cannot reach accepted status.
+  cannot, an item keeps a single pass, and the schema will not let it be
+  accepted.
 - The validator checks structure, targets, and internal consistency. It cannot
-  check whether a gold standard is correct, or whether a page really says what an
-  item claims. Only the reviewer refetching the page can do that.
+  check whether a gold standard is correct, or whether a page really says what
+  an item claims. Only the reviewer refetching the page can do that.
 - Coverage targets are a first guess and have not survived contact with the web.
-  If a sub-type turns out not to exist in the wild at the volume assumed, that is
-  a finding about the taxonomy, to be recorded rather than worked around.
+  If a sub-type turns out not to exist in the wild at the volume assumed, that
+  is a finding about the taxonomy, to be recorded rather than worked around.

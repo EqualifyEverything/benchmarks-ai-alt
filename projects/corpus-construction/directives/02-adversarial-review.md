@@ -11,6 +11,20 @@ only when you cannot find a defect in it.
 Run this directive once per round, after the seeking agent's round.
 
 
+## Paths
+
+Work from the project directory, `projects/corpus-construction/`. Every file you
+read or write is named relative to it:
+
+- `corpus/functional-images.jsonl`, the corpus you review but never edit
+- `rounds/round-NN-review.jsonl`, your per-item verdicts
+- `rounds/round-NN-report.md`, your corpus-level report
+- `rounds/round-NN-seek.md`, the seeking agent's log for this round
+
+Links below that begin with `../` are there so they resolve when reading this
+file on GitHub. They are not the paths to write to.
+
+
 ## Read first, every round
 
 1. [00-corpus-goals.md](00-corpus-goals.md). The specification. Every judgment
