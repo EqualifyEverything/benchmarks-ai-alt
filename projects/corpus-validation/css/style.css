@@ -280,6 +280,12 @@ button[aria-disabled="true"] {
     letter-spacing: 0.04em;
 }
 
+.alt-source {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin-top: 0.5rem;
+}
+
 /* Card: context */
 .card-context {
     margin-bottom: 1.25rem;

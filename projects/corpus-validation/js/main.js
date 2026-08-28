@@ -31,6 +31,7 @@
         els.image = document.getElementById('current-image');
         els.placeholder = document.getElementById('image-placeholder');
         els.altText = document.getElementById('current-alt');
+        els.altSource = document.getElementById('current-alt-source');
         els.acceptBtn = document.getElementById('accept-btn');
         els.rejectBtn = document.getElementById('reject-btn');
         els.reasonGroup = document.getElementById('reason-group');
@@ -45,6 +46,7 @@
         els.issueLink = document.getElementById('github-issue-link');
         els.contextPage = document.getElementById('context-page');
         els.contextRole = document.getElementById('context-role');
+        els.contextAlt = document.getElementById('context-alt');
         els.contextSurrounding = document.getElementById('context-surrounding');
 
         // Events
@@ -148,6 +150,41 @@
         els.issueLink.href = GITHUB_ISSUE_BASE + '?' + params.toString();
     }
 
+    // The text under review, in the order a browser resolves it.
+    function announcedName(item) {
+        if (typeof item.accessible_name === 'string'
+            && item.accessible_name !== '') {
+            return item.accessible_name;
+        }
+        return item.observed_alt || '';
+    }
+
+    var SOURCE_LABELS = {
+        'alt': "the image's alt attribute",
+        'aria-label': 'an aria-label',
+        'aria-labelledby': 'an aria-labelledby reference',
+        'title': 'a title attribute',
+        'svg-title': 'a title inside the SVG',
+        'control-text': "the link or button's own text"
+    };
+
+    function sourceLabel(item) {
+        return SOURCE_LABELS[item.accessible_name_source]
+            || 'text in the markup';
+    }
+
+    // Whether the image itself carries alt text, separately from whatever the
+    // surrounding control contributes.
+    function altAttributeLabel(item) {
+        if (item.observed_alt === null || item.observed_alt === undefined) {
+            return '(no alt attribute on the image)';
+        }
+        if (item.observed_alt === '') {
+            return '(alt="", deliberately empty)';
+        }
+        return item.observed_alt;
+    }
+
     // Validation flow
     function loadItem() {
         if (currentIndex >= corpus.length) {
@@ -166,9 +203,14 @@
             imageSrc = item.image_url;
         }
 
+        // What a screen reader actually announces. For many items the text
+        // lives on the link or button rather than on the image itself, so
+        // observed_alt alone would show nothing to judge.
+        var announced = announcedName(item);
+
         if (imageSrc) {
             els.image.src = imageSrc;
-            els.image.alt = item.observed_alt || '';
+            els.image.alt = announced;
             els.image.style.display = '';
             hide(els.placeholder);
             // Remove any previously rendered inline SVG
@@ -185,8 +227,7 @@
                 var wrapper = document.createElement('div');
                 wrapper.className = 'inline-svg';
                 wrapper.setAttribute('role', 'img');
-                wrapper.setAttribute('aria-label',
-                    item.observed_alt || '');
+                wrapper.setAttribute('aria-label', announced);
                 wrapper.innerHTML = svgMatch[0];
                 document.querySelector('.card-image').appendChild(wrapper);
             }
@@ -201,15 +242,19 @@
         }
 
         // Alt text display
-        var altDisplay = item.observed_alt;
-        if (altDisplay === '' || altDisplay === null) {
-            altDisplay = '(empty alt text)';
+        els.altText.textContent = announced || '(no text at all)';
+        if (els.altSource) {
+            els.altSource.textContent = announced
+                ? 'Written in the page as ' + sourceLabel(item) + '.'
+                : '';
         }
-        els.altText.textContent = altDisplay;
 
         // Context
         els.contextPage.textContent = item.page_url || 'Unknown';
         els.contextRole.textContent = item.element_role || 'Unknown';
+        if (els.contextAlt) {
+            els.contextAlt.textContent = altAttributeLabel(item);
+        }
         els.contextSurrounding.textContent =
             item.surrounding_text || '(none)';
 

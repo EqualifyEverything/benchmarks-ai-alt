@@ -70,13 +70,22 @@ Each project lives in its own directory under [projects/](projects/), with its
 own goal, directives, data, and README.
 
 - [Corpus construction](projects/corpus-construction/). Build the corpus of
-  functional images, page context, and gold standard alt text that the benchmark
-  scores against. Two agents in a loop, a seeking agent and an adversarial
-  reviewer, with a mechanical stop condition. Built and tested; three rounds
-  have run, collecting 31 items of which 11 are accepted against a run goal of
-  100. Only images whose control already has an
-  accessible name are collected, because the corpus pairs each image with an
-  alternative description that was really shipped.
+  functional images, page context, and the alt text the sites themselves
+  shipped. A crawler does the mechanical work, extracting markup, surrounding
+  text and the existing accessible name from page bytes; an agent then judges
+  only what needs judgment, which is whether the image is functional and whether
+  the shipped alt text is genuinely good. The first full run crawled 524 pages
+  on 67 domains, found 11,334 candidates, selected 250 for review, and passed 78
+  to human validation. Only images whose control already has an accessible name
+  are collected, because the corpus pairs each image with an alternative
+  description that was really shipped.
+- [Corpus validation](projects/corpus-validation/). A static, accessible tool
+  for confirming those pairs by hand. Serve the repository root over HTTP
+  and open the project directory. It shows the archived image and the text a
+  screen reader announces for it, and asks a person to accept or reject with a
+  written reason. A pair only becomes a reference once someone has accepted it,
+  which is why this project exists rather than trusting the review pass.
+  Status: active, holding the 78 items the first run exported.
 
 The [projects index](projects/README.md) says how to add another one.
 

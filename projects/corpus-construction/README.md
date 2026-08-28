@@ -240,6 +240,11 @@ the fetched document, and the model is asked only for judgment.
 - `corpus/functional-images.jsonl`. The items selected for review.
 - `corpus/README.md`. The field reference.
 - `review/`. Per-batch inputs, prompts, verdicts and notes. The audit trail.
+  `review/batch-01-notes.md` states the judgment standard the later batches
+  refer back to, and each later notes file records where that standard was
+  refined and which earlier verdict the refinement contradicts.
+  `review/RUN-2026-08-27.md` is the report for the first full run: real counts,
+  why items were dropped, and the harvester bugs the review surfaced.
 - `tools/html.mjs`. A dependency-free HTML tokenizer that keeps byte offsets, and
   an accessible name computation. `element_html` being a real slice of the source
   rests on this, and its self-test asserts exactly that.

@@ -12,9 +12,13 @@ Every project follows the repository requirements in
 ## Current projects
 
 - [corpus-construction](corpus-construction/). Build the corpus of images, page
-  context, and gold standard alt text that the benchmark scores against.
-  Starting with functional images. Status: active, three rounds run, 31 items
-  collected and 11 accepted against a run goal of 100.
+  context, and the alt text the sites themselves shipped, which is what the
+  benchmark scores against. Starting with functional images. Status: active,
+  first full run complete. 524 pages crawled, 11,334 candidates found, 250
+  selected, 250 reviewed, 78 passed to human validation.
+- [corpus-validation](corpus-validation/). A static, keyboard-accessible tool
+  for confirming the pairs by hand. A pair is only a reference once a person has
+  accepted it. Status: active, holding the 78 items exported by the first run.
 
 
 ## Adding a project

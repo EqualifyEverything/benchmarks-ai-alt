@@ -7,11 +7,30 @@ local HTTP server.
 ## How it works
 
 1. Start a session.
-2. For each image, you see the image and the alt text under review.
+2. For each image, you see the image and the text under review.
 3. Click Accept or Reject.
 4. Provide a written reason (required for both).
 5. End the session at any time; you are not required to finish all items.
 6. Download results as JSON and submit them as a GitHub issue.
+
+## What "the text under review" means
+
+Not every functional image carries its own alt attribute. A search button often
+puts the text in an aria-label on the button, and a logo inside a link whose
+own text already names the site correctly carries alt="". So the tool shows the
+accessible name, which is the text a screen reader actually announces, and says
+which attribute it came from.
+
+The image's own alt attribute is shown separately under Context, with two
+distinct cases spelled out rather than collapsed together:
+
+- (no alt attribute on the image), which is usually a defect
+- (alt="", deliberately empty), which is correct when the surrounding link or
+  button already carries the text
+
+Of the 78 items in the first corpus, 36 have no usable alt attribute on the
+image itself, so this distinction is most of the corpus rather than an edge
+case.
 
 ## Running locally
 
