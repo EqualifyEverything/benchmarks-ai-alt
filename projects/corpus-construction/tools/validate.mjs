@@ -75,6 +75,14 @@ const isUrl = (v) => {
   catch { return false }
 }
 
+// The host as `domain` records it. `www.` comes off, the same way harvest.mjs
+// takes it off, because www.example.gov and example.gov are one publisher and the
+// per-domain cap has to see them that way.
+const host = (url) => {
+  try { return new URL(url).host.toLowerCase().replace(/^www\./, '') }
+  catch { return '' }
+}
+
 // --- record validation -----------------------------------------------------
 
 // Returns a list of problems, so one run reports everything wrong with a record
@@ -91,9 +99,9 @@ export function checkItem(item, where) {
   }
   if (!isUrl(item.page_url)) bad('`page_url` must be an http or https URL')
   if (!isStr(item.domain)) bad('`domain` is required')
-  else if (isUrl(item.page_url) && new URL(item.page_url).hostname !== item.domain) {
+  else if (isUrl(item.page_url) && host(item.page_url) !== item.domain) {
     bad(`\`domain\` is ${item.domain} but \`page_url\` is on ` +
-      `${new URL(item.page_url).hostname}`)
+      `${host(item.page_url)}`)
   }
   if (!isStr(item.sector)) bad('`sector` is required')
 
@@ -390,6 +398,12 @@ function selftest() {
   check('a domain that disagrees with the page URL is rejected',
     checkItem(item({ domain: 'elsewhere.gov' }), 'x')
       .some((e) => e.includes('is on example.gov')))
+  // The harvester records www.weather.gov as weather.gov, so this check has to
+  // strip www. too. It did not, and it failed 161 of the first 250 selected.
+  check('a www host matches the domain it was recorded as',
+    checkItem(item({ page_url: 'https://www.example.gov/help' }), 'x')
+      .length === 0,
+    JSON.stringify(checkItem(item({ page_url: 'https://www.example.gov/help' }), 'x')))
   const inlineSvg = (over = {}) => item({
     implementation: 'inline-svg', image_url: null,
     image_svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2">' +

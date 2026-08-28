@@ -154,16 +154,16 @@ export function parse(doc) {
     return -1
   }
 
-  const close = (upTo) => {
-    // Pop to the nearest matching open element. A close tag matching nothing is
-    // ignored, which is what browsers do and what keeps one typo from
-    // reparenting the rest of the page.
+  // Pop to the nearest matching open element, as though a close tag appeared at
+  // `pos`. A close tag matching nothing is ignored, which is what browsers do and
+  // what keeps one typo from reparenting the rest of the page.
+  const close = (upTo, pos) => {
     const at = nearest(upTo)
     if (at <= 0) return false
     for (let k = stack.length - 1; k >= at; k--) {
       const node = stack[k]
-      if (node.contentEnd === -1) node.contentEnd = node.start
-      if (node.end === -1) node.end = node.start
+      if (node.contentEnd === -1) node.contentEnd = pos
+      if (node.end === -1) node.end = pos
     }
     stack.length = at
     return true
@@ -223,8 +223,14 @@ export function parse(doc) {
     const tag = m[1].toLowerCase()
     const { attrs, next, selfClosing } = readAttrs(doc, lt + m[0].length)
 
+    // A link inside a link is not allowed, and a browser ends the open one
+    // wherever the second begins, however deep the nesting. Real pages ship it
+    // anyway: a card whose whole area links somewhere, with the headline inside
+    // linking to the same place. Without this the outer link never closes and its
+    // slice runs to the end of whatever contains it.
+    if (tag === 'a') close('a', lt)
     const implicitly = CLOSED_BY[tag]
-    if (implicitly && implicitly.includes(open().tag)) close(open().tag)
+    if (implicitly && implicitly.includes(open().tag)) close(open().tag, lt)
 
     const node = makeNode(tag, attrs, lt)
     node.contentStart = next
@@ -449,6 +455,33 @@ function selftest() {
       outerHtml(tree, a).includes('<div class="label">Menu</div>') &&
       p !== null && p.parent.attrs.class === 'bar',
       JSON.stringify(outerHtml(tree, a)))
+  }
+
+  // A link inside a link, which pages ship despite it being invalid. A browser
+  // ends the outer one where the inner one starts. Left alone the outer link
+  // never closes and its slice swallows the rest of its container: 19 of the
+  // 11,334 candidates the first good harvest found.
+  {
+    const doc = '<div class="card"><a href="/story"><span>' +
+      '<img src="t.png" alt="A wheat field"></span>' +
+      '<a href="/story">Read the story</a></a><p>after</p></div>'
+    const tree = parse(doc)
+    const outer = byTag(tree, 'a')
+    const html = outerHtml(tree, outer)
+    check('a link inside a link ends the outer one where the inner begins',
+      html.includes('alt="A wheat field"') &&
+      !html.includes('Read the story') && !html.includes('<p>'),
+      JSON.stringify(html))
+  }
+
+  // An implicit close ends the element where the next one starts, not where it
+  // began. Ending it at its own start made every implicitly closed element slice
+  // to the empty string.
+  {
+    const tree = parse('<ul><li>one<li>two</ul>')
+    const first = byTag(tree, 'li')
+    check('an implicitly closed element keeps a real slice',
+      outerHtml(tree, first) === '<li>one', JSON.stringify(outerHtml(tree, first)))
   }
 
   // Attribute forms: double, single, unquoted, valueless, entity-encoded.
