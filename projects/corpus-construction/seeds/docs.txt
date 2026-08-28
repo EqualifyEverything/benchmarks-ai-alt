@@ -1,0 +1,15 @@
+# Technical documentation and standards. Dense in action and toggle icons:
+# copy buttons, theme toggles, sidebar controls, version pickers.
+
+https://developer.mozilla.org/en-US/
+https://www.w3.org/WAI/
+https://www.w3.org/TR/WCAG22/
+https://docs.python.org/3/
+https://nodejs.org/docs/latest/api/
+https://git-scm.com/docs
+https://www.kernel.org/doc/html/latest/
+https://docs.djangoproject.com/en/stable/
+https://developer.chrome.com/docs
+https://www.postgresql.org/docs/current/
+https://docs.rs/
+https://webaim.org/

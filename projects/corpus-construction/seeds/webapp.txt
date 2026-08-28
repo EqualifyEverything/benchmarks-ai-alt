@@ -1,0 +1,20 @@
+# Web applications. The thinnest sector by construction: most modern web apps
+# render their interface in JavaScript, and the harvester reads the HTML as
+# served. Directive 00 records that limit rather than hiding it.
+#
+# So these are deliberately the server-rendered ones. Issue trackers, wikis and
+# forums built before the single-page era are full of icon-only controls in
+# plain HTML, which is exactly what this sector needs.
+
+https://news.ycombinator.com/
+https://en.wikipedia.org/wiki/Web_accessibility
+https://commons.wikimedia.org/wiki/Main_Page
+https://bugzilla.mozilla.org/
+https://bugs.python.org/
+https://savannah.gnu.org/
+https://meta.discourse.org/
+https://sourceforge.net/
+https://archive.org/
+https://lists.debian.org/
+https://trac.edgewall.org/
+https://www.mediawiki.org/wiki/MediaWiki

@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 // Keep a local copy of every image the corpus records, and link each item to it.
 //
-// The corpus cites images by URL, and URLs rot. A page redesign, a CDN move, or
-// a deleted file makes an item unscoreable, and by then nobody can tell whether
-// the gold standard was right. So every item with a separate image file gets a
-// byte copy under corpus/images/, named after the item, with its SHA-256 in the
-// record. The archive is what makes a score reproducible after the web moves on.
+// The pool cites images by URL, and URLs rot. A page redesign, a CDN move, or a
+// deleted file makes an item unscoreable, and by then nobody can tell what was
+// really there. So every candidate gets a byte copy under pool/images/, named
+// after the item, with its SHA-256 in the record. The archive is what makes a
+// score reproducible after the web moves on, and it is what the review pass and
+// the human validator actually look at.
+//
+// Three sources of bytes, all handled here:
+//   an http or https URL   fetched, once, politely
+//   a data: URI            decoded, no request
+//   inline SVG             taken from `element_html`, no request
 //
 // Two fields per item, written here and nowhere else:
 //   image_file    project-relative path of the copy, or null when there is none
@@ -22,8 +28,8 @@
 //   IMAGE_FETCH_CMD='curl -sSL'  any command that writes the bytes to stdout
 //   built-in fetch               the default
 //
-// Fetching is sequential and unhurried, one request at a time, because directive
-// 00 requires collection to be polite.
+// Fetching is sequential and unhurried, one request at a time and at most one
+// per second per host, because directive 00 requires collection to be polite.
 //
 // A URL that does not resolve is an ordinary outcome, not a defect in the record:
 // the item keeps its URL, gets no local copy, and cannot be accepted until it
@@ -49,7 +55,7 @@ const PROJECT = resolve(HERE, '..')
 // in the record exactly like this, so every agent, tool and reader resolves it
 // the same way: from the project directory, which is where all the other paths
 // in this project are resolved from.
-const ARCHIVE_DIR = 'corpus/images'
+const ARCHIVE_DIR = 'pool/images'
 
 // Extensions we are willing to write, and how to recognise the bytes. An
 // extension we cannot name is refused rather than guessed, because a file whose
@@ -76,12 +82,13 @@ const TYPES = {
 
 const MAX_BYTES = 8 * 1024 * 1024
 const FETCH_TIMEOUT_MS = 20000
+const HOST_DELAY_MS = 1000
 const USER_AGENT = 'benchmarks-ai-alt corpus archiver ' +
   '(+https://github.com/EqualifyEverything/benchmarks-ai-alt)'
 
-// A rejected item is kept as evidence and will never be scored, so it is not
-// worth a request.
-const WORTH_ARCHIVING = ['candidate', 'needs-revision', 'accepted']
+// A dropped item is kept as evidence and will never be shown to anyone, so it is
+// not worth a request.
+const WORTH_ARCHIVING = ['unreviewed', 'ready']
 
 const isStr = (v) => typeof v === 'string'
 
@@ -116,6 +123,15 @@ function extFromUrl(url) {
   if (!m) return null
   const ext = m[1] === 'jpeg' ? 'jpg' : m[1]
   return ext in TYPES ? ext : null
+}
+
+// Last resort when neither the content type nor the URL names the type, which is
+// the normal case for a data URI written without one.
+function sniffExt(bytes) {
+  for (const [ext, spec] of Object.entries(TYPES)) {
+    if (spec.looks(bytes)) return ext
+  }
+  return null
 }
 
 function readJsonl(path) {
@@ -156,8 +172,58 @@ function existingArchive(imagesDir, id) {
 
 function needsArchive(item) {
   if (!WORTH_ARCHIVING.includes(item.status)) return false
-  if (!isStr(item.image_url) || item.image_url === '') return false
-  return !isStr(item.image_file) || item.image_file === ''
+  if (isStr(item.image_file) && item.image_file !== '') return false
+  // Inline SVG has no URL; its bytes are the markup we already hold.
+  if (item.implementation === 'inline-svg') {
+    return isStr(item.element_html) && item.element_html.includes('<svg')
+  }
+  return isStr(item.image_url) && item.image_url !== ''
+}
+
+// Elements that actually put marks on the canvas. An SVG with none of them draws
+// nothing, whatever else it contains.
+const SVG_PAINTS = /<(path|circle|rect|polygon|polyline|line|ellipse|text|image|foreignObject)\b/i
+
+// The `<svg>` element out of a recorded control, as a standalone file. Written so
+// that a reviewer and the human validator can open the icon on its own, which is
+// the only way to judge whether the alt text describes it.
+//
+// Returns `{ bytes }` or `{ error }`.
+function svgFromMarkup(html) {
+  const at = html.indexOf('<svg')
+  const to = html.lastIndexOf('</svg>')
+  if (at === -1 || to === -1 || to < at) {
+    return { error: 'element_html has no complete <svg> element to write' }
+  }
+  const body = html.slice(at, to + 6)
+  // The sprite case, and it is common: the control holds
+  // `<svg><use xlink:href="#icon-search"></use></svg>` and the shape lives in a
+  // symbol defined elsewhere on the page or in a separate file. Written out on
+  // its own the file is a blank rectangle. Nobody can judge whether the alt text
+  // describes a blank rectangle, so this is refused for the same reason directive
+  // 00 puts icon fonts out of scope: the bytes are not archivable from the
+  // markup, and an item with no archivable image cannot be scored.
+  if (!SVG_PAINTS.test(body)) {
+    return { error: 'the inline SVG paints nothing on its own, it references a ' +
+      'sprite defined elsewhere on the page' }
+  }
+  return {
+    bytes: Buffer.from(body.includes('xmlns')
+      ? body
+      : body.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')),
+  }
+}
+
+// A data: URI carries its own bytes. Common for small icons, and there is no
+// request to make.
+function decodeDataUri(url) {
+  const m = /^data:([^;,]*)(;base64)?,([\s\S]*)$/i.exec(url)
+  if (m === null) return { error: 'not a readable data URI' }
+  const bytes = m[2] !== undefined
+    ? Buffer.from(decodeURIComponent(m[3]).replace(/\s/g, ''), 'base64')
+    : Buffer.from(decodeURIComponent(m[3]), 'utf8')
+  if (bytes.length === 0) return { error: 'the data URI carries no bytes' }
+  return { bytes, contentType: m[1] === '' ? null : m[1] }
 }
 
 // --- retrieval -------------------------------------------------------------
@@ -198,9 +264,31 @@ function commandGet(cmd) {
   }
 }
 
+// One request per second per host, the same rule the harvester follows. A
+// shortlist can hold a dozen images from one site, and a dozen requests in a
+// burst is exactly the behaviour directive 00 forbids. Wrapped around the
+// retrieval function rather than put in the archive loop, so the self-test's
+// injected `get` runs at full speed.
+function politely(get, delayMs = HOST_DELAY_MS) {
+  const lastAt = new Map()
+  return async (url) => {
+    let host
+    try { host = new URL(url).host } catch { return get(url) }
+    const last = lastAt.get(host)
+    if (last !== undefined) {
+      const since = Date.now() - last
+      if (since < delayMs) {
+        await new Promise((done) => setTimeout(done, delayMs - since))
+      }
+    }
+    lastAt.set(host, Date.now())
+    return get(url)
+  }
+}
+
 function defaultGet() {
   const cmd = process.env.IMAGE_FETCH_CMD
-  return isStr(cmd) && cmd.trim() !== '' ? commandGet(cmd) : httpGet
+  return politely(isStr(cmd) && cmd.trim() !== '' ? commandGet(cmd) : httpGet)
 }
 
 // --- archive ---------------------------------------------------------------
@@ -209,7 +297,7 @@ function defaultGet() {
 // an HTML page with a 200 status is the failure this catches, and it is common
 // enough that saving it silently would put error pages in the corpus.
 function classify(url, contentType, bytes) {
-  const ext = extFromContentType(contentType) ?? extFromUrl(url)
+  const ext = extFromContentType(contentType) ?? extFromUrl(url) ?? sniffExt(bytes)
   if (ext === null) {
     return { error: `cannot name the image type from ${contentType ?? 'no ' +
       'content type'} or the URL path` }
@@ -232,7 +320,9 @@ async function archive(corpusPath, imagesDir, get, { dryRun = false } = {}) {
 
   for (const item of todo) {
     const id = isStr(item.id) ? item.id : '(no id)'
-    if (!/^fi-\d{4}$/.test(id)) {
+    // Four digits is the floor, not the ceiling: a pool past ten thousand
+    // candidates numbers them fi-10000 and up, and those are ordinary items.
+    if (!/^fi-\d{4,}$/.test(id)) {
       failed.push(`${id}: the item has no usable id, so the copy cannot be named`)
       continue
     }
@@ -250,13 +340,36 @@ async function archive(corpusPath, imagesDir, get, { dryRun = false } = {}) {
       continue
     }
 
+    // Inline SVG: no request, the bytes are already in the record.
+    if (item.implementation === 'inline-svg') {
+      const { bytes, error: svgError } = svgFromMarkup(item.element_html)
+      if (bytes === undefined) {
+        failed.push(`${id}: ${svgError}`)
+        continue
+      }
+      if (dryRun) {
+        notes.push(`${id}: would write the inline SVG from element_html`)
+        archived++
+        continue
+      }
+      mkdirSync(imagesDir, { recursive: true })
+      writeFileSync(join(imagesDir, `${id}.svg`), bytes)
+      item.image_file = `${ARCHIVE_DIR}/${id}.svg`
+      item.image_sha256 = sha256(bytes)
+      archived++
+      notes.push(`${id}: ${bytes.length} bytes of inline SVG, no request`)
+      continue
+    }
+
     if (dryRun) {
       notes.push(`${id}: would fetch ${item.image_url}`)
       archived++
       continue
     }
 
-    const got = await get(item.image_url)
+    const got = item.image_url.startsWith('data:')
+      ? decodeDataUri(item.image_url)
+      : await get(item.image_url)
     if (got.error) {
       failed.push(`${id}: ${got.error} for ${item.image_url}`)
       continue
@@ -338,10 +451,11 @@ function selftest() {
   const html = Buffer.from('<!doctype html><title>Not found</title>')
 
   const item = (id, over) => ({
-    id, status: 'candidate',
+    id, status: 'unreviewed',
     image_url: `https://example.com/i/${id}.png`,
     image_file: null, image_sha256: null,
-    gold_alt: 'Home', ...over,
+    implementation: 'img', element_html: '<a href="/"><img alt="Home"></a>',
+    accessible_name: 'Home', ...over,
   })
   const write = (rows) => writeFileSync(corpusPath, toJsonl(rows))
   const read = () => readFileSync(corpusPath, 'utf8').trim().split('\n')
@@ -372,7 +486,7 @@ function selftest() {
     const onDisk = join(imagesDir, 'fi-0001.png')
     check('a missing image is fetched and linked',
       r.archived === 1 && r.failed.length === 0 &&
-      rec.image_file === 'corpus/images/fi-0001.png' &&
+      rec.image_file === 'pool/images/fi-0001.png' &&
       rec.image_sha256 === sha256(png) && existsSync(onDisk),
       `${r.failed.join('; ')} ${JSON.stringify(rec.image_file)}`)
 
@@ -385,12 +499,12 @@ function selftest() {
       rec.image_sha256 === sha256(png),
       `${r.calls.length} request(s), ${r.failed.join('; ')}`)
 
-    // Items with nothing to archive are left alone, including rejected ones,
-    // which are kept as evidence and will never be scored.
+    // Items with nothing to archive are left alone, including dropped ones,
+    // which are kept as evidence and will never be shown to anyone.
     r = await run([
-      item('fi-0002', { image_url: null }),
-      item('fi-0003', { status: 'rejected' }),
-      item('fi-0004', { image_file: 'corpus/images/fi-0004.png',
+      item('fi-0002', { image_url: null, implementation: 'img' }),
+      item('fi-0003', { status: 'dropped' }),
+      item('fi-0004', { image_file: 'pool/images/fi-0004.png',
         image_sha256: sha256(png) }),
     ], { error: 'should not be called' })
     check('nothing to archive means no requests',
@@ -422,7 +536,7 @@ function selftest() {
     { bytes: png, contentType: 'image/png' })
     rec = read()[0]
     check('the content type wins over the URL extension',
-      rec.image_file === 'corpus/images/fi-0007.png',
+      rec.image_file === 'pool/images/fi-0007.png',
       JSON.stringify(rec.image_file))
 
     // With no content type, which is what a fetch command gives us, the URL
@@ -433,7 +547,7 @@ function selftest() {
     const mismatch = await run([item('fi-0009', {
       image_url: 'https://example.com/i/y.svg' })], { bytes: png })
     check('with no content type the URL extension is used and checked',
-      rec.image_file === 'corpus/images/fi-0008.svg' &&
+      rec.image_file === 'pool/images/fi-0008.svg' &&
       mismatch.failed.length === 1 && mismatch.failed[0].includes('not svg'),
       `${JSON.stringify(rec.image_file)}, ${mismatch.failed.join('; ')}`)
 
@@ -446,9 +560,37 @@ function selftest() {
       read()[0].image_file === null && r.notes.some((n) => n.includes('would fetch')),
       `${r.calls.length} request(s), notes ${r.notes.join('; ')}`)
 
+    // Inline SVG needs no request: the bytes come out of the recorded markup,
+    // and an xmlns is added so the file opens on its own in a browser.
+    r = await run([item('fi-0011', {
+      image_url: null, implementation: 'inline-svg',
+      element_html: '<button><svg viewBox="0 0 2 2"><title>Close</title>' +
+        '<path d="M0 0 2 2"/></svg></button>',
+    })], { error: 'should not be called' })
+    rec = read()[0]
+    const svgPath = join(imagesDir, 'fi-0011.svg')
+    check('inline SVG is written from the markup with no request',
+      r.calls.length === 0 && r.archived === 1 &&
+      rec.image_file === 'pool/images/fi-0011.svg' && existsSync(svgPath) &&
+      readFileSync(svgPath, 'utf8').includes('xmlns') &&
+      readFileSync(svgPath, 'utf8').includes('<title>Close</title>'),
+      `${r.calls.length} request(s), ${r.failed.join('; ')}`)
+
+    // A data URI carries its own bytes, and the type is sniffed when the URI
+    // does not name one.
+    const b64 = 'data:image/png;base64,' + png.toString('base64')
+    r = await run([item('fi-0012', { image_url: b64 })],
+      { error: 'should not be called' })
+    rec = read()[0]
+    check('a data URI is decoded without a request',
+      r.calls.length === 0 && r.archived === 1 &&
+      rec.image_file === 'pool/images/fi-0012.png' &&
+      rec.image_sha256 === sha256(png),
+      `${r.calls.length} request(s), ${r.failed.join('; ')}`)
+
     // Verification catches a copy that changed on disk, and one that is gone.
     // Either means the archive no longer supports the scores taken from it.
-    write([item('fi-0001', { image_file: 'corpus/images/fi-0001.png',
+    write([item('fi-0001', { image_file: 'pool/images/fi-0001.png',
       image_sha256: sha256(png) })])
     let v = verify(corpusPath, imagesDir)
     const clean = v.problems.length === 0 && v.checked === 1
@@ -461,6 +603,48 @@ function selftest() {
     check('verification catches a changed or missing copy',
       clean && caught && missing,
       `clean ${clean}, changed ${caught}, missing ${missing}`)
+
+    // An inline SVG that only references a sprite symbol writes a blank file.
+    // Refused, and the item keeps no image, so it can never be selected: nobody
+    // can judge whether alt text describes a blank rectangle.
+    r = await run([item('fi-0013', {
+      image_url: null, implementation: 'inline-svg',
+      element_html: '<a href="#"><svg class="icon" aria-hidden="true">' +
+        '<use xlink:href="#icon-search"></use></svg>Search</a>',
+    })], { error: 'should not be called' })
+    rec = read()[0]
+    check('an inline SVG that only references a sprite is refused',
+      r.archived === 0 && r.failed.length === 1 &&
+      r.failed[0].includes('paints nothing') && rec.image_file === null &&
+      !existsSync(join(imagesDir, 'fi-0013.svg')),
+      `${r.archived} archived, ${r.failed.join('; ')}`)
+
+    // A pool past ten thousand candidates numbers them with five digits. The
+    // first real harvest found 11,210 and every id past fi-9999 was refused as
+    // unnameable, which cost 179 downloads before anyone noticed.
+    r = await run([item('fi-10421')], { bytes: png, contentType: 'image/png' })
+    rec = read()[0]
+    check('a five digit id is archived, not refused',
+      r.archived === 1 && r.failed.length === 0 &&
+      rec.image_file === 'pool/images/fi-10421.png',
+      `${r.failed.join('; ')} ${JSON.stringify(rec.image_file)}`)
+
+    // Politeness, with the delay turned down so the test stays offline and fast.
+    // Two hosts, three requests: the two to one host are spaced, the one to the
+    // other waits for nobody.
+    {
+      const at = []
+      const polite = politely(async (url) => { at.push([url, Date.now()]); return {} }, 40)
+      const t0 = Date.now()
+      await polite('https://a.example.com/1.png')
+      await polite('https://b.example.com/1.png')
+      await polite('https://a.example.com/2.png')
+      const spanSameHost = at[2][1] - at[0][1]
+      const otherHostWasImmediate = at[1][1] - t0 < 40
+      check('requests to one host are spaced, other hosts are not held up',
+        at.length === 3 && spanSameHost >= 40 && otherHostWasImmediate,
+        `same host ${spanSameHost}ms, other host ${at[1][1] - t0}ms`)
+    }
 
     rmSync(dir, { recursive: true, force: true })
     process.stdout.write(failures === 0
@@ -475,7 +659,7 @@ function selftest() {
 async function main(argv) {
   let mode = 'archive'
   let dryRun = false
-  let corpusPath = join(PROJECT, 'corpus', 'functional-images.jsonl')
+  let corpusPath = join(PROJECT, 'pool', 'candidates.jsonl')
   let imagesDir = join(PROJECT, ARCHIVE_DIR)
 
   for (let i = 0; i < argv.length; i++) {
@@ -494,7 +678,7 @@ async function main(argv) {
   }
 
   if (!existsSync(corpusPath)) {
-    process.stdout.write(`no corpus at ${corpusPath}, nothing to archive\n`)
+    process.stdout.write(`no pool at ${corpusPath}, nothing to archive\n`)
     return 0
   }
 
@@ -517,7 +701,7 @@ async function main(argv) {
     for (const p of problems) process.stdout.write(`  ${p}\n`)
     process.stdout.write('\nA copy that changed or vanished invalidates every ' +
       'score taken from it. Restore it from git, or refetch it and record why in ' +
-      'corpus/corrections.md.\n')
+      'the harvest log.\n')
     return 2
   }
 
@@ -544,8 +728,8 @@ async function main(argv) {
   process.stdout.write(`${failed.length} could not be archived:\n`)
   for (const f of failed) process.stdout.write(`  ${f}\n`)
   process.stdout.write('\nThose items keep their image URL and get no local ' +
-    'copy, so they cannot be accepted. Refetch them next round, or drop them if ' +
-    'the image is gone for good.\n')
+    'copy, so tools/select.mjs will not choose them. Re-run to retry, or leave ' +
+    'them: an image that is gone for good is not a corpus item.\n')
   return 1
 }
 

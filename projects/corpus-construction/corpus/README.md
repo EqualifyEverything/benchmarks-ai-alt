@@ -1,229 +1,109 @@
-# Corpus files and schema
+# The corpus files
 
-This directory holds the corpus itself, in plain text.
+Plain text, one JSON object per line, in the order items were added. Append-only
+in practice: `status` and the three review fields change in place, nothing else
+does.
 
-- `functional-images.jsonl`. The corpus. One JSON object per line, one line per
-  item. Created by the seeking agent on the first round; absent until then.
-- `target.txt`. The goal for this run, in accepted items: one whole number, plus
-  comment lines starting with `#`. Written by `./run.sh --target N` and read by
-  `../tools/validate.mjs`. Absent means the full 250-item v0.1 corpus in
-  [../directives/00-corpus-goals.md](../directives/00-corpus-goals.md). It is
-  committed rather than passed on the command line so that every round, every
-  bare validator run, and the history all agree on what the loop is working
-  toward. Count targets scale with it; share targets do not.
+- `functional-images.jsonl`, the corpus. Items selected for review.
+- `../pool/candidates.jsonl`, everything the harvester found. Same shape, review
+  fields always null.
+- `../pool/shortlist.jsonl`, the candidates worth downloading. Same shape, and the
+  only rows outside the corpus that carry `image_file` and `image_sha256`.
+- `../pool/images/`, the archived image bytes, named after the item id.
 
-- `corrections.md`. Every change made to the corpus by a person rather than by a
-  tool, with what changed and why. Out-of-band edits should be rare; the normal
-  way to change an item is a review verdict and another round.
-- `images/`. One local copy of every image the corpus records, named after the
-  item, written by `../tools/fetch-images.mjs`. See
-  [images/README.md](images/README.md). The copies are what keep an item
-  scoreable after its page changes, and they are the one exception to the plain
-  text requirement in [../../../AGENTS.md](../../../AGENTS.md).
+The specification lives in `../directives/00-corpus-goals.md`. This file is the
+field reference. `../tools/validate.mjs` enforces it; if the two disagree, the
+tool is right and this file is stale.
 
-Records are append-only. Items are never deleted, only given a new status.
-Rejected items stay in the file with their reason codes, because they are
-evidence about what does not belong in the corpus.
-
-Validate the file at any time with:
-
-    node ../tools/validate.mjs
-
-The validator enforces every rule below and reports progress against the
-acceptance criteria in
-[../directives/00-corpus-goals.md](../directives/00-corpus-goals.md). If the
-validator and this document ever disagree, the validator is the one the loop
-obeys, and the disagreement is a defect to fix.
+The image files in `../pool/images/` are the one exception to the repository's
+plain text rule, because they are the artifacts under test. Everything about them
+is recorded here as text.
 
 
-## Item record schema
+## Fields
 
-All fields are required unless marked optional or conditional. Unknown fields
-are rejected, so the schema stays honest rather than accumulating silent
-variants.
+Written by `../tools/harvest.mjs`:
 
-- `id`. String matching `fi-` followed by four digits, for example `fi-0001`.
-  Unique across the file.
-- `status`. One of `candidate`, `accepted`, `needs-revision`, `rejected`.
-  Written by `../tools/apply-verdicts.mjs` from the review records, and by
-  nothing else. The seeking agent writes `candidate` on a new item, and may
-  return a `needs-revision` item to `candidate` once it has applied the required
-  change. No agent writes `accepted`.
-- `round_added`. Integer, 1 or greater. The round that first recorded the item.
-- `category`. Integer 1 through 5, matching the taxonomy categories in the
-  repository [README.md](../../../README.md).
-- `subtype`. One of:
-  - `linked-standalone-logo`, category 1
-  - `standalone-navigational-link`, category 1
-  - `form-control-or-image-button`, category 2
-  - `action-or-toggle-icon`, category 2
-  - `functional-non-unicode-emoji`, category 3
-  - `linked-complex-graphic-or-image-map`, category 4
-  - `structural-break-or-reader-control`, category 5
-  The sub-type must belong to the recorded category.
-- `page_url`. Absolute `http` or `https` URL of the page the image appeared on.
-- `domain`. The host of `page_url`, lowercase, without a leading `www.`. Used
-  for the concentration limits, so it must agree with `page_url`.
-- `image_url`. Absolute `http` or `https` URL of the image file, or `null` when
-  the implementation has no separate file. Required to be a URL for `img`,
-  `sprite`, `css-background`, `input-image`, and `area` implementations.
-- `image_file`. Path of the local copy of the image, relative to the project
-  directory, as `corpus/images/ID.EXT` where `ID` is this item's own id. `null`
-  when there is no copy: either `image_url` is `null`, so there is no separate
-  file to copy, or the copy has not been made yet. Written by
-  `../tools/fetch-images.mjs` and by nothing else. An accepted item with an
-  `image_url` must have one.
-- `image_sha256`. SHA-256 of that file, 64 lowercase hex characters. `null`
-  exactly when `image_file` is `null`. The validator checks the shape of these two
-  fields; `node ../tools/fetch-images.mjs --verify` checks the bytes on disk
-  against the hash, and the loop runs it every round.
-- `implementation`. One of `img`, `inline-svg`, `icon-font`, `sprite`,
-  `css-background`, `input-image`, `area`. What a model would actually be given
-  depends on this, so it is not optional.
-- `element_role`. One of `link`, `button`, `input-image`, `area`, `custom`,
-  `glyph`. The interactive role the image carries.
-- `element_html`. Verbatim markup of the image and its interactive ancestor,
-  copied from the page. Not reformatted, not reconstructed.
-- `surrounding_text`. Verbatim visible text inside and immediately adjacent to
-  the control. Empty string when there is none, which is itself meaningful.
-- `destination`. Where activating it goes, or what it does. A URL or a plain
-  description.
-- `observed_alt`. The alt text actually present on the page. Empty string for
-  `alt=""`. `null` when the attribute is absent entirely. These are different
-  failures and must stay distinguishable.
-- `observed_alt_verdict`. One of `correct`, `wrong`, `missing`,
-  `empty-appropriate`, `empty-inappropriate`.
-- `accessible_name`. Non-empty string. What the control actually announces today,
-  computed from the page the way a screen reader would. Never empty: an image
-  whose control has no alt text and no other accessible description is not
-  collected at all, so no item exists to record an empty value for. See the
-  collection constraints in
-  [../directives/00-corpus-goals.md](../directives/00-corpus-goals.md).
-- `accessible_name_source`. Where that name comes from. One of `alt`,
-  `aria-label`, `aria-labelledby`, `title`, `svg-title`, `control-text`. With
-  `alt` the name must be the `observed_alt` value, and with `control-text` the
-  `surrounding_text` must be non-empty, so the claim is checkable against the
-  rest of the record rather than taken on trust.
-- `gold_alt`. The gold standard alt text. Empty string when the correct answer
-  is `alt=""`.
-- `gold_alt_rationale`. Why, citing the criteria it rests on and naming the
-  alternative rejected. At least 40 characters, and a restatement of the answer
-  does not qualify.
-- `gold_alt_passes`. Array of one or more independent pass objects, each with
-  `author`, `alt`, and `rationale`. The first, `pass-a`, is written by the
-  seeking agent. The second, `pass-b`, is written in its own turn by
-  [../directives/02-second-pass.md](../directives/02-second-pass.md) and merged
-  by `tools/second-pass.mjs`, the only thing that appends to this array. An
-  `accepted` item needs two passes that agree, or an `adjudication`.
-- `adjudication`. String, or `null`. Required when the passes disagree: which
-  reading wins, and why. Disagreement is an ordinary state for a candidate and
-  an illegal one for an accepted item, so the validator only enforces this on
-  acceptance, and `tools/apply-verdicts.mjs` refuses to promote an item whose
-  passes disagree with nothing recorded.
-- `difficulty`. One of `trivial`, `standard`, `ambiguous`.
-- `dual_purpose`. Boolean. True when the item is functional and informative at
-  once.
-- `leakage_check`. What you checked, and the conclusion. At least 20 characters.
-- `leaky`. Boolean. True when the gold standard is recoverable from the file
-  name, URL path, or observed alt alone. A leaky item can never be `accepted`.
-- `retrieved`. Date the page was fetched, as `YYYY-MM-DD`.
-- `provenance_note`. The basis for citing this item in published results.
-- `notes`. Optional string.
+- `id`. `fi-` and at least four digits, for example `fi-0042`. A pool past ten
+  thousand candidates numbers them `fi-10000` and up. Unique.
+- `status`. `unreviewed`, `ready`, or `dropped`.
+- `page_url`. The page the image was found on. http or https.
+- `domain`. The host of `page_url`. The two must agree.
+- `sector`. `government`, `education`, `publishing`, `docs`, `commerce`, `news`,
+  or `webapp`. Comes from the seed list the URL was in.
+- `image_url`. The resolved image URL, or a `data:` URI, or `null` for an inline
+  SVG. Required for `img`, `input-image` and `area`; forbidden for `inline-svg`.
+- `implementation`. `img`, `inline-svg`, `input-image`, or `area`.
+- `element_role`. `link`, `button`, `input-image`, `area`, or `custom`. What the
+  interactive element around the image is.
+- `element_html`. A character-exact slice of the fetched document: the
+  interactive element, opening tag through closing tag, with the image inside it.
+  Never rebuilt from a parse tree, never retyped. This is what makes the record
+  checkable against the page as it was served.
+- `surrounding_text`. Visible text near the control, collapsed to single spaces,
+  up to 240 characters. Empty string when there was none.
+- `observed_alt`. The alternative text the site shipped. A string, including the
+  empty string, or `null`.
+- `accessible_name`. Non-empty. What a screen reader announces for the control.
+- `accessible_name_source`. `alt`, `aria-label`, `aria-labelledby`, `title`,
+  `svg-title`, or `control-text`.
+- `category`. 1 to 5. Follows from `subtype`.
+- `subtype`. One of the seven in directive 00.
+- `retrieved`. `YYYY-MM-DD`, the day the page was fetched.
+
+Written by `../tools/fetch-images.mjs`, and by nothing else:
+
+- `image_file`. Path of the archived copy relative to the project directory, for
+  example `pool/images/fi-0042.svg`. `null` until a copy exists.
+- `image_sha256`. Lowercase hex SHA-256 of that file. `null` until then.
+
+Written by `../tools/apply-review.mjs`, and by nothing else:
+
+- `review_verdict`. `keep` or `drop`. `null` while `unreviewed`.
+- `review_reason`. Plain prose, at least 20 characters. `null` while
+  `unreviewed`.
+- `alt_quality`. `good`, `weak`, or `wrong`. `null` while `unreviewed`.
 
 
-## Review record schema
+## Two distinctions that carry the weight
 
-Written by adversarial review to `../rounds/round-NN-review.jsonl`, one object
-per line, one per item reviewed. Corpus records are never edited by the
-reviewer. After the round, `../tools/apply-verdicts.mjs` reads these records and
-writes the item statuses: `accept` becomes `accepted`, `revise` becomes
-`needs-revision`, `reject` becomes `rejected`. It applies a round all or
-nothing, and it refuses to promote an item this schema forbids: a leaky one, one
-with a single gold standard pass, one whose two passes disagree with no
-adjudication recorded, one with an `image_url` and no local copy of the image, or
-one whose control has no accessible name.
-An item waiting on an adjudication or on a copy is `revise`, never `accept`.
+**`observed_alt: ""` is not `observed_alt: null`.** An empty string means the
+page had `alt=""`: the author decided the image adds nothing a screen reader
+needs, which is sometimes exactly right, for example an icon inside a link that
+already says "View cart" in text. `null` means there was no alt attribute at all.
+The first is a decision to judge. The second is usually a defect, and an image
+with no accessible name from any source is never collected at all.
 
-- `item_id`. The `id` of the item reviewed.
-- `round`. Integer, 1 or greater.
-- `verdict`. One of `accept`, `revise`, `reject`.
-- `reason_codes`. Array of one or more codes from the vocabulary below.
-- `evidence`. One sentence naming what was checked and what was found. At least
-  20 characters.
-- `required_change`. String. Required when the verdict is `revise`, stating the
-  exact change needed. `null` otherwise.
-- `blocking`. Boolean. Whether the defect blocks acceptance of the item. An
-  `accept` verdict cannot be blocking: the combination would promote the item
-  and count it as defective at the same time, and no later round could resolve
-  it, because accepted items are not reviewed again.
+**`accessible_name` is not `observed_alt`.** The accessible name is what a screen
+reader announces for the whole control, which may come from an ancestor's
+`aria-label`, from `aria-labelledby`, or from the control's own visible text.
+`observed_alt` is only what was attached to the image. When
+`accessible_name_source` is `control-text`, the control has its own text and the
+correct alt for the image is usually `""`.
 
 
-## Reason code vocabulary
+## Statuses
 
-Use these codes verbatim. Adding a code means updating this list, the validator,
-and [../directives/03-adversarial-review.md](../directives/03-adversarial-review.md)
-together.
+- `unreviewed`. Selected into the corpus, waiting for a review batch.
+- `ready`. Reviewed, kept, and the shipped alt text is good. These are what
+  `../tools/export.mjs` hands to the corpus-validation project for human
+  confirmation.
+- `dropped`. Reviewed and not kept, for whatever `review_reason` says. Kept in
+  the file rather than deleted, because a record of what was rejected and why is
+  part of the method.
 
-- `CLEAN`. No defect found. The only code valid on an `accept` verdict.
-- `UNVERIFIABLE-SOURCE`. Page or image could not be retrieved and confirmed.
-- `CONTEXT-INACCURATE`. Recorded markup, surrounding text, or observed alt does
-  not match the page.
-- `NOT-FUNCTIONAL`. The image is informative, decorative, text, or complex.
-- `MISCLASSIFIED`. Wrong category, wrong sub-type, or an interactive ancestor
-  that is not in the recorded markup.
-- `APPEARANCE-DESCRIPTION`. Gold standard describes the visual, not the
-  function.
-- `REDUNDANCY-MISSED`. Adjacent text already conveys the function, so the
-  correct answer is an empty alt attribute.
-- `WRONGLY-EMPTY`. Gold standard is empty where the control has no other
-  accessible name.
-- `REDUNDANT-STARTER`. Gold standard begins with "link to", "button for",
-  "icon of", or similar.
-- `TOO-VERBOSE`. Longer than the function warrants, or over the character
-  guidance.
-- `ASSUMPTION`. Asserts something the image and context do not support.
-- `NO-RATIONALE`. Rationale is missing, or restates the answer without citing
-  criteria.
-- `LEAKAGE`. Answer is recoverable without seeing the image or context.
-- `NON-DISCRIMINATING`. Item cannot separate a capable model from a weak one.
-- `DUPLICATE`. Same icon, same role, same icon set as an accepted item.
-- `MISSING-FIELD`. A required field is absent or malformed.
-- `NO-SECOND-PASS`. Fewer than two independent gold standard passes and no
-  adjudication, or a `pass-b` that appears in no round's
-  `round-NN-second-pass.jsonl` and so cannot have been authored blind.
-- `NO-ACCESSIBLE-NAME`. The control announces nothing: no alt text, no
-  `aria-label`, no `title`, no text of its own. The item does not belong in the
-  corpus and the verdict is `reject`, not `revise`.
-- `NO-IMAGE-COPY`. The item has an `image_url` and no local copy in
-  `images/`, or the copy on disk does not match the recorded `image_sha256`.
-  Such an item is `revise`, never `accept`.
-- `LICENSE-UNCLEAR`. Provenance note is inadequate for citation.
+Only `../tools/apply-review.mjs` writes `status`. No agent edits these files.
 
 
-## Example record
+## Reading them
 
-Illustrative only. The URLs use the reserved `example.com` domain and are not
-real corpus data. Executable copies of this and other examples live in
-`../tools/fixtures/`, which the validator's self-test runs against.
+    node ../tools/validate.mjs                  schema and coverage
+    node ../tools/validate.mjs --pool           the candidate pool instead
+    node ../tools/validate.mjs --json           machine readable
 
-    {"id":"fi-0001","status":"candidate","round_added":1,"category":2,
-     "subtype":"action-or-toggle-icon","page_url":"https://example.com/inbox",
-     "domain":"example.com","image_url":"https://example.com/i/g12.svg",
-     "image_file":"corpus/images/fi-0001.svg",
-     "image_sha256":"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-     "implementation":"img","element_role":"button",
-     "element_html":"<button type=\"button\"><img src=\"/i/g12.svg\" alt=\"gear\"></button>",
-     "surrounding_text":"","destination":"Opens the account settings panel",
-     "observed_alt":"gear","observed_alt_verdict":"wrong",
-     "accessible_name":"gear","accessible_name_source":"alt",
-     "gold_alt":"Settings",
-     "gold_alt_rationale":"Names the outcome of activating the control rather than the glyph, per action over description; rejected \"gear\" because the visual is irrelevant to the user.",
-     "gold_alt_passes":[{"author":"pass-a","alt":"Settings","rationale":"Function, not glyph."},
-                        {"author":"pass-b","alt":"Settings","rationale":"Opens settings; label the outcome."}],
-     "adjudication":null,"difficulty":"standard","dual_purpose":false,
-     "leakage_check":"File name g12.svg reveals nothing; answer requires the destination.",
-     "leaky":false,"retrieved":"2026-08-27",
-     "provenance_note":"Public page, no login; cited by URL, with a local copy kept for re-runs."}
+Plain shell works too, since every line is one item:
 
-Records are one line each in the real file. The line breaks above are for
-reading only.
+    grep -c '"status":"ready"' functional-images.jsonl
+    node -e 'require("fs").readFileSync("functional-images.jsonl","utf8")
+      .trim().split("\n").map(JSON.parse)
+      .forEach(i => console.log(i.id, i.subtype, JSON.stringify(i.observed_alt)))'

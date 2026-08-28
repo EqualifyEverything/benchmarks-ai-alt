@@ -1,0 +1,20 @@
+# Government and public sector. One URL per line, blank lines and # comments
+# ignored. The file name is the sector recorded on every item found here.
+#
+# The harvester follows same-host links from each seed, so a section index is a
+# better seed than a deep page.
+
+https://www.usa.gov/
+https://www.ada.gov/
+https://www.section508.gov/
+https://www.cdc.gov/
+https://www.nasa.gov/
+https://www.census.gov/
+https://www.weather.gov/
+https://www.congress.gov/
+https://www.gov.uk/
+https://www.canada.ca/en.html
+https://www.ssa.gov/
+https://www.nps.gov/
+https://www.usds.gov/
+https://digital.gov/

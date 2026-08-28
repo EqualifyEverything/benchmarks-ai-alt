@@ -1,185 +1,183 @@
 # Project: corpus construction
 
-Build the corpus of functional images, page context, and gold standard alt text
-that the benchmark scores against.
+Build the corpus of functional images, page context, and shipped alt text that
+the benchmark scores against.
 
-Status: round one has run. 12 items collected, 4 sent back for revision and 5
-rejected, mostly for leakage. Nothing is accepted yet: round one's three
-promotions were withdrawn because its second gold standard passes came from the
-same turn as the first, which is not independence. See
-[corpus/corrections.md](corpus/corrections.md), and the round one artefacts,
-before running round two.
+A crawler finds the images and extracts everything mechanical. One agent pass
+judges whether each image is functional and whether the alt text the site shipped
+is any good. People confirm the survivors in the
+[corpus validation](../corpus-validation/) project. That human confirmation is
+what makes a pair a reference.
+
+Nobody in this pipeline writes alt text. There is no authored gold standard. The
+reference is the site's own alt text, confirmed by a person.
 
 
 ## Getting started
 
-Read this section before running anything. The loop is easy to start and takes
-judgment to steer, and round one is a test of the directives rather than a
-source of corpus data.
+Read this before running anything.
 
 
 ### 1. What you need
 
-- Node, any current version, and a shell. There is nothing to install and no
-  dependencies.
-- An agent harness that can write files in this directory and retrieve web
-  pages. Adapters ship for Claude Code, Codex, and pi. Any other CLI works
-  through `AGENT_CMD`, and a harness with only a chat window works by pasting
-  prompts. See [adapters/README.md](adapters/README.md).
-- Working credentials for that harness, set up the way that tool expects. This
-  project holds no keys and no configuration of its own.
+- Node, any current version, and a shell. Nothing to install, no dependencies.
+- For the review stage only, an agent harness that can read and write files in
+  this directory. Adapters ship for Claude Code, Codex, and pi. Any other CLI
+  works through `AGENT_CMD`, and a harness with only a chat window works by
+  pasting prompts. See [adapters/README.md](adapters/README.md).
 
-Check the harness first, before anything else here. One line, negligible cost:
+The harvest and archive stages need network access but no model. The review stage
+needs a model but no network.
+
+Check the harness before spending a review turn on it. One line, negligible cost:
 
     echo "Reply with the single word: ok" | ./adapters/pi.sh
 
-If that does not print `ok`, fix the harness before going further. Every round
-depends on it, and some CLIs report a failed login or an expired token while
-still exiting successfully, which looks from the outside like a round that ran
-and did nothing.
+If that does not print `ok`, fix the harness first. Some CLIs report a failed
+login or an expired token while still exiting successfully, which looks from the
+outside like a turn that ran and did nothing.
 
 
 ### 2. Verify the machinery
 
     ./run.sh --selftest
 
-Runs the validator, the promotion tool, the second pass tool, the image archiver
-and the entire loop against a stub agent and a synthetic corpus. No network, no
-model calls, no cost. Expect five groups of `PASS` lines and `loop self-test
-passed` at the end.
-
-    ./run.sh --status
-
-Says where the corpus stands and runs no agents. Before round one it reports
-that the corpus file does not exist yet, which is correct.
+Runs every tool's own offline test and then the stage driver against a stub
+agent. No network, no model calls, no cost. Expect seven groups of `PASS` lines
+and `stage driver self-test passed` at the end.
 
 
-### 3. Read what the agents will be told
-
-The directives are the substance of this project. `run.sh` only sequences them,
-and reading them is how you know what you are about to get.
+### 3. Read what the corpus is meant to be
 
 - [directives/00-corpus-goals.md](directives/00-corpus-goals.md). The
-  specification: what an item is, the coverage and difficulty targets, and the
-  acceptance criteria that decide when the loop stops.
-- [directives/01-seek-functional-images.md](directives/01-seek-functional-images.md).
-  What the seeking agent does each round.
-- [directives/02-second-pass.md](directives/02-second-pass.md). What the second
-  gold standard author does, in its own turn, without seeing the first answer.
-- [directives/03-adversarial-review.md](directives/03-adversarial-review.md).
-  What the reviewer does to all of it.
+  specification: what an item is, the seven sub-types, coverage targets,
+  concentration caps, politeness rules, and what is deliberately out of scope.
+- [directives/review.md](directives/review.md). The one thing an agent is told to
+  do. Reading it is how you know what judgment you are about to get.
+- [corpus/README.md](corpus/README.md). The field reference.
 
-If you disagree with anything in directive 00, change it now. It defines what
-finished means, and the loop will grind toward whatever it says. Those targets
-are a first guess that has not survived contact with the real web.
-
-The one number you are most likely to want to change is the size of the corpus.
-The full v0.1 is 250 accepted items, which is tens of hours of agent time. To
-work toward a smaller first corpus:
-
-    ./run.sh --target 100
-
-That records the goal in `corpus/target.txt`, so every later round and every
-bare `node tools/validate.mjs` uses it without you repeating the flag, and a
-change of goal shows up in the history. Count targets scale with it, so 100
-items means 12 per category and 8 per sub-type, while the share targets, being
-ratios, do not. A corpus built to a smaller goal is a milestone rather than
-v0.1, and supports weaker per-sub-type claims when you publish it.
+If you disagree with directive 00, change it now. It defines what finished means.
 
 
-### 4. Run one round
+### 4. Harvest
 
-    ./run.sh --agent pi --max-rounds 1
+    ./run.sh --harvest              every seed list
+    ./run.sh --harvest commerce     one sector
 
-Use `--agent claude` or `--agent codex` if that is your harness, or drop
-`--agent` and the first installed adapter is used and named.
+Fetches the pages in [seeds/](seeds/), finds every image inside an interactive
+element, computes what each control already announces to a screen reader, slices
+the markup out of the bytes it fetched, and appends candidates to
+`pool/candidates.jsonl`. It honours `robots.txt`, waits a second between requests
+to a host, and caps pages per host.
 
-What happens, in order: the validator reports the current state, the seeking
-agent takes one turn and writes items and a run log, the validator checks that
-output, `tools/fetch-images.mjs` copies every image into `corpus/images/` and
-links the copy from its record, `tools/second-pass.mjs` extracts the page
-context of every item holding a single gold standard pass, a second agent turn
-authors a blind second pass over that file alone and the tool merges it, the
-reviewer judges every new candidate and writes verdicts and a report,
-`tools/apply-verdicts.mjs`
-turns those verdicts into statuses, and the validator reports again.
+Two rules worth knowing before you read the output:
 
-Three turns, not two. The second pass is separate because an agent that has just
-authored a gold standard cannot then author an independent one, and two passes
-from one turn agree by construction.
+- An image whose control announces nothing is skipped and never written. This
+  corpus pairs images with descriptions that were really shipped.
+- Pages that build their interface in JavaScript yield nothing, because the
+  harvester reads the HTML as served.
 
-Expect exit code 1, meaning the goals are not met. That is the normal result of
-round one: the criteria ask for hundreds of accepted items and a first round
-produces a handful. Expect the round to take a while, because every item has to
-be fetched and verified before it is recorded.
+Expect a large skip count. Most images on the web are not inside a control.
+
+Growing the corpus means adding seeds and harvesting again. `./run.sh --status`
+says which sectors are short.
 
 
-### 5. Read what it produced
+### 5. Archive the images
 
-- `rounds/round-01-seek-prompt.md`, `rounds/round-01-second-pass-prompt.md` and
-  `rounds/round-01-review-prompt.md`. Exactly what each agent was told, kept so
-  a round can be reproduced, or reproduced differently.
-- `rounds/round-01-seek.md`. Which coverage gap the seeking agent chose, which
-  search strategies it used, and what it dropped and why. If it reports that a
-  sub-type could not be found, that is a finding about the taxonomy rather than
-  a failed round.
-- `rounds/round-01-second-pass-input.jsonl` and
-  `rounds/round-01-second-pass.jsonl`. What the second gold standard author was
-  shown, and what it concluded. Compare a few by hand: if the second passes read
-  like the first, independence is not working.
-- `corpus/functional-images.jsonl`. The items, one JSON object per line. Run
-  `node tools/validate.mjs` for counts against every target, including how many
-  items are waiting for a second pass, an adjudication, or a local image copy.
-- `corpus/images/`. One copy of each image, named after its item, which the
-  record links in `image_file`. Open a few: this is what a model will be given,
-  and it is what keeps the item scoreable after the page changes.
-- `rounds/round-01-review.jsonl` and `rounds/round-01-report.md`. The per-item
-  verdicts, the corpus-level findings, the accept and reject rates, and the
-  `STATUS:` line the loop reads to decide whether to stop.
+    ./run.sh --images
 
-Then check three things by hand, because nothing here can check them for you:
+Two steps. First it draws a shortlist, `pool/shortlist.jsonl`, because the pool is
+enormous: a few dozen seeds yield tens of thousands of candidates and the caps in
+step 6 keep a few hundred, so downloading the pool whole would be tens of
+thousands of requests for bytes that are then discarded. The shortlist runs the
+same caps with room to spare, minus the one that needs hashes that do not exist
+yet.
 
-- Provenance. Pick three items and refetch them yourself. Confirm the markup,
-  the surrounding text, and the observed alt value match what the record claims.
-  Fabricated provenance is the one defect that would invalidate the benchmark,
-  and it is the hardest to detect later.
-- Gold standards. Do you agree with them? Where you do not, the disagreement is
-  worth more than the item, and it belongs in directive 00 so that later rounds
-  inherit it. Read the disagreements between the two passes first: they are
-  where the judgment is visible.
-- Reviewer bite. If the reviewer accepted nearly everything, it is not being
-  adversarial enough. Its directive tells it to say so; check whether it did.
+Then it downloads the bytes of every shortlisted image into `pool/images/`, names
+each file after its item, records a SHA-256, and re-checks the copies already
+there. Inline SVG and `data:` URIs need no request; their bytes come from the
+markup. One request per second per host, as in the harvest.
+
+A URL that no longer resolves is an ordinary outcome: that candidate keeps its
+URL and cannot be selected until a copy exists. A copy whose bytes changed under
+us stops everything, because every judgment about an item rests on those bytes.
 
 
-### 6. Decide what happens next
+### 6. Select
 
-- The items look sound. Keep going with `./run.sh --agent pi`, which loops until
-  the acceptance criteria are met or it hits the round cap of ten.
-- The items look thin or wrong. Change the directive that produced them and run
-  another single round. Editing a directive is the intended way to steer this,
-  and the diff is the record of why the corpus looks the way it does.
-- A target turns out to be unreachable. Record that in directive 00 rather than
-  quietly lowering it. An unreachable target is a finding about the taxonomy.
+    ./run.sh --select 30
 
-Expect the empty-alt and dual-purpose quotas to be hardest to fill. Those items
-require judging context rather than recognising an icon, which is exactly why
-the benchmark needs them.
+Moves candidates from the pool into `corpus/functional-images.jsonl` with status
+`unreviewed`. This is where skew is prevented, in code rather than by asking a
+directive nicely:
+
+- one item per image and role pair, across the whole corpus
+- at most 2 items from any one page
+- at most 5 percent of the goal from any one domain
+- then the thinnest sector and sub-type buckets are filled first
+
+It prints what it dropped and why. Silent truncation would read as coverage.
+
+The first version of this project had none of this and drifted: 31 items in which
+two domains supplied six of the eleven that survived, four came from two page
+templates, and one page contributed two of eight identical buttons.
+
+
+### 7. Review
+
+    ./run.sh --review               one batch, with an agent
+    ./run.sh --agent claude --review
+
+One turn per batch. The agent gets `review/batch-NN-input.jsonl`, follows
+[directives/review.md](directives/review.md), and writes verdicts to
+`review/batch-NN.jsonl`. `tools/apply-review.mjs` then turns those verdicts into
+statuses. `keep` with `alt_quality: good` becomes `ready`; everything else
+becomes `dropped`, with the reason kept.
+
+For a harness with no command line:
+
+    ./run.sh --prompt review        prints the prompt, writes the input
+    ./run.sh --apply-review 1       after the agent has written the file
+
+The agent never edits the corpus. `tools/apply-review.mjs` is the only thing that
+writes `status`, it applies a batch all or nothing, and it refuses a `keep` whose
+`alt_quality` is not `good`.
+
+
+### 8. Export, and hand it to people
+
+    ./run.sh --export
+
+Writes the `ready` items to
+`../corpus-validation/functional-images.jsonl`. No images are copied: that
+project resolves an image as `'../corpus-construction/' + item.image_file`, so
+serving the repository root is enough.
+
+    python3 -m http.server 8000     from the repository root
+    open http://localhost:8000/projects/corpus-validation/
+
+Then read what you have. Pick a few items and check them by hand: the archived
+image against the alt text, the alt text against the surrounding context. The
+review pass is one agent's judgment, and the point of the human stage is that it
+is not the last word.
 
 
 ### If something goes wrong
 
-- `no agent to run the rounds with`. Nothing was named and no adapter's command
+- `no agent to run the review with`. Nothing was named and no adapter's command
   is on your `PATH`. Name one with `--agent`, set `AGENT_CMD`, or use
-  `./run.sh --prompt seek` and paste the prompt into whatever you have.
+  `./run.sh --prompt review` and paste the prompt into whatever you have.
 - `exited successfully but did not write`. The agent did nothing. Usually a
   denied tool permission or a failed login, both of which look like a clean exit
-  in non-interactive mode. Run the one-line harness check from step 1.
-- Schema errors. The validator names the file, the line, and the field. Fix
-  them, or hand the message to an agent to fix, before running another round.
-  The loop will not run a reviewer over records the validator rejects.
-- `Refused to apply round N verdicts`. The reviewer accepted something the
-  specification forbids, such as a leaky item or one with a single gold standard
-  pass. Nothing was written. Fix the review records, then `./run.sh --apply N`.
+  in non-interactive mode.
+- `refused to apply batch NN`. The verdict file breaks a rule the corpus depends
+  on, most often a `keep` whose alt text is not `good`, or a missing item.
+  Nothing was written. Fix the file and apply it again.
+- `hashes to`. An archived image changed. Everything stops, because the item was
+  judged against the bytes that were there.
+- Nothing harvested from a host. Read the harvest output: it distinguishes a
+  robots refusal, a failed request, and a page that simply had no candidates.
 
 
 ## Why this project exists first
@@ -194,126 +192,129 @@ we use to build the gold standard the benchmark scores against?
 
 ## How it works
 
-Two agents, run in a loop, with a mechanical stop condition.
+Five stages. Only one needs a model.
 
-- A seeking agent searches the public web, verifies what it finds, and records
-  items with their real context and an independently authored gold standard. It
-  only collects images whose control already has an accessible name, from alt
-  text, an ARIA label, a title, or the control's own text. This corpus is images
-  paired with alternative descriptions, so a control that announces nothing is
-  skipped rather than recorded.
-- An adversarial reviewer tries to break every item, writes a verdict per item,
-  and reports corpus-level defects the item-by-item pass cannot see.
-- The loop repeats until the corpus meets the acceptance criteria, which include
-  two consecutive review rounds that surface no new blocking findings.
+    seeds/SECTOR.txt              plain text URL lists, committed
+      | tools/harvest.mjs         robots, fetch, parse, accessible name, classify
+    pool/candidates.jsonl         every candidate found, append-only
+      | tools/select.mjs          --shortlist: the caps that need no bytes
+    pool/shortlist.jsonl          what is worth downloading
+      | tools/fetch-images.mjs    download bytes, hash, name after the item
+    pool/images/
+      | tools/select.mjs          dedup, concentration caps, thin buckets first
+    corpus/functional-images.jsonl        status: unreviewed
+      | directives/review.md      one agent turn per batch
+    review/batch-NN.jsonl         keep or drop, with a reason
+      | tools/apply-review.mjs    status: ready or dropped
+      | tools/export.mjs
+    ../corpus-validation/         a person accepts or rejects
 
-Neither agent can declare the work finished. The seeking agent cannot promote
-its own items to accepted, and the reviewer cannot edit the corpus. Statuses are
-written by `tools/apply-verdicts.mjs`, which reads the reviewer's verdicts and
-applies them mechanically after each review round. That separation is the only
-real check in the design, so the directives enforce it explicitly.
+It is not a loop with a stop condition. It is stages you re-run with more seeds
+until the coverage report says the counts are where you want them.
 
-Which agent does the work is not part of the design. A round is one prompt and
-one turn, so any harness that can write files here and fetch pages can run it.
+The split between the script and the model is the whole design. An earlier version
+of this project asked an agent to search the web, read pages, and retype markup
+into records. Its own review pass found that the recorded markup was "retyped or
+reformatted rather than pasted from the fetched bytes", and the largest cost in
+the pipeline became re-fetching pages to check the agent's transcription. So the
+mechanical work is mechanical now, `element_html` is a character-exact slice of
+the fetched document, and the model is asked only for judgment.
 
 
 ## Files
 
-- `directives/00-corpus-goals.md`. The specification: what an item is, coverage
-  and difficulty targets, collection constraints, and the acceptance criteria.
-  Read this first. Every other file is bound by it.
-- `directives/01-seek-functional-images.md`. The seeking agent's directive.
-- `directives/02-second-pass.md`. The blind second gold standard pass.
-- `directives/03-adversarial-review.md`. The adversarial reviewer's directive.
-- `directives/04-loop.md`. How the rounds are sequenced and when to stop.
+- `directives/00-corpus-goals.md`. The specification. Read this first.
+- `directives/review.md`. The review pass. The only directive an agent runs.
+- `seeds/`. One plain text URL list per sector. See
+  [seeds/README.md](seeds/README.md).
 - `adapters/`. One small file per harness, plus the contract for adding another.
-- `corpus/README.md`. The item and review record schemas, and the reason code
-  vocabulary.
-- `corpus/functional-images.jsonl`. The corpus. Created by the first round.
-- `corpus/images/`. One local copy of every image the corpus records, named
-  after its item and linked from the record. The one exception to the plain text rule
-  in [../../AGENTS.md](../../AGENTS.md), because it is the artefact under test.
-- `corpus/corrections.md`. Every change made to the corpus by hand rather than
-  by a tool, with the reason.
-- `rounds/`. Per-round prompts, run logs, review records, and reports. The audit
-  trail.
-- `tools/validate.mjs`. Enforces the schema, computes progress against every
-  target, and decides whether the goals are met. No dependencies.
-- `tools/second-pass.mjs`. Extracts the page context for the second pass turn,
-  carrying no trace of the first answer, and merges the result back. The wall
-  between the two passes.
-- `tools/fetch-images.mjs`. Copies each recorded image into `corpus/images/`,
-  links the copy from its record with a SHA-256, and checks the copies already
-  there against those hashes. The only thing that writes the archive.
-- `tools/apply-verdicts.mjs`. Applies a review round's verdicts to the corpus,
-  all or nothing, and refuses any promotion the specification forbids. The only
-  thing in the project that changes an item's status.
-- `tools/fixtures/`. Synthetic records for the validator's self-test. Reserved
-  example domains, never corpus data.
-- `run.sh`. Sequences the loop and stops it at the right time.
+- `pool/candidates.jsonl`. Everything the harvester found, append-only.
+- `pool/shortlist.jsonl`. The candidates worth downloading, append-only. Same
+  shape, and the only rows that carry `image_file` and `image_sha256` before
+  selection.
+- `pool/images/`. One byte copy of each image, named after its item and linked
+  from the record. The one exception to the plain text rule in
+  [../../AGENTS.md](../../AGENTS.md), because it is the artefact under test.
+- `corpus/functional-images.jsonl`. The items selected for review.
+- `corpus/README.md`. The field reference.
+- `review/`. Per-batch inputs, prompts, verdicts and notes. The audit trail.
+- `tools/html.mjs`. A dependency-free HTML tokenizer that keeps byte offsets, and
+  an accessible name computation. `element_html` being a real slice of the source
+  rests on this, and its self-test asserts exactly that.
+- `tools/harvest.mjs`. The crawler. Robots, politeness, extraction,
+  classification.
+- `tools/fetch-images.mjs`. The image archive, and the only thing that writes it.
+- `tools/select.mjs`. The concentration caps and quota fill.
+- `tools/apply-review.mjs`. Applies one review batch, all or nothing. The only
+  thing that writes `status`.
+- `tools/export.mjs`. Hands the ready items to the corpus validation project.
+- `tools/validate.mjs`. Schema and coverage. Reports, never gates.
+- `run.sh`. Drives the stages.
 
 
 ## Command reference
 
-    ./run.sh --selftest         verify the machinery, no model calls
-    ./run.sh --status           progress report, runs no agents
-    ./run.sh --images           archive the images, then check the archive
-    ./run.sh --agent NAME       run using adapters/NAME.sh
-    ./run.sh --max-rounds 1     one round, then stop
-    ./run.sh --target 100       goal of 100 accepted items, not 250
-    ./run.sh                    loop until the goals are met, cap 10
-    ./run.sh --prompt seek      print the next round's seeking prompt
-    ./run.sh --prompt second-pass  extract and print the second pass prompt
-    ./run.sh --merge-passes N   merge round N's second gold standard passes
-    ./run.sh --prompt review    print the pending review prompt
-    ./run.sh --apply N          apply round N verdicts after a hand-run round
-    ./run.sh --help             every flag and every environment variable
+    ./run.sh --selftest           verify the machinery, no network, no model
+    ./run.sh --status             schema and coverage report
+    ./run.sh --harvest [sector]   crawl the seed lists
+    ./run.sh --images             archive image bytes, then verify them
+    ./run.sh --select 30          move N candidates into the corpus
+    ./run.sh --review             one review turn with an agent
+    ./run.sh --prompt review      print the batch prompt instead
+    ./run.sh --apply-review 1     apply review/batch-01.jsonl
+    ./run.sh --export             write the validation corpus
+    ./run.sh --goal 100           work toward 100 items, not 250
+    ./run.sh --batch-size 50      items in one review turn. Default: 30
+    ./run.sh --agent NAME         use adapters/NAME.sh for the review
+    ./run.sh --help              every flag and every environment variable
 
 Any CLI, with no adapter:
 
-    AGENT_CMD='mycli --headless {prompt}' ./run.sh
+    AGENT_CMD='mycli --headless {prompt}' ./run.sh --review
 
-Exit codes: `0` goals met, `1` round cap reached with goals unmet, `2` a step
-failed or the corpus has schema errors, `3` bad usage.
+Exit codes: `0` the stage did its work, `1` there was nothing to do, `2` a stage
+refused or failed, `3` bad usage.
 
-Each round is judged by the files it produced, not by the agent's exit code. An
-agent that exits successfully without writing its round artefacts stops the loop
+The review turn is judged by the file it produced, not by the agent's exit code.
+An agent that exits successfully without writing its batch file stops the run
 with an explanation, because in non-interactive mode a denied tool permission or
 an expired token looks exactly like a clean run.
 
-Validate or promote by hand at any time:
+Every tool runs on its own, and every one has an offline self-test:
 
-    node tools/validate.mjs            human readable
-    node tools/validate.mjs --target 100  report against a smaller goal
-    node tools/validate.mjs --json     machine readable
-    node tools/validate.mjs --selftest fixtures and gate logic
-    node tools/apply-verdicts.mjs --round 1 --dry-run
-    node tools/apply-verdicts.mjs --round 1
-    node tools/second-pass.mjs --extract --round 1
-    node tools/second-pass.mjs --apply --round 1
-    node tools/fetch-images.mjs --dry-run
-    node tools/fetch-images.mjs
+    node tools/harvest.mjs --sector news --dry-run
     node tools/fetch-images.mjs --verify
+    node tools/select.mjs --add 30 --dry-run
+    node tools/apply-review.mjs 1 --dry-run
+    node tools/validate.mjs --pool --json
+    node tools/export.mjs --dry-run
+    node tools/html.mjs --selftest
 
 
 ## Known limits
 
-- Independence of the two gold standard passes rests on the second agent not
-  reading a file it is told not to read. The prompt and its input carry no first
-  answer, and each turn is a fresh session, so there is nothing to remember. But
-  the corpus file is on disk, and nothing here can stop an agent opening it.
-  What can be checked is checked: every `pass-b` must appear in a round's second
-  pass file, and the reviewer codes `NO-SECOND-PASS` when it does not.
-- The validator checks structure, targets, and internal consistency. It cannot
-  check whether a gold standard is correct, or whether a page really says what
-  an item claims. Only the reviewer refetching the page can do that.
-- The loop can tell an agent that wrote nothing from one that worked, and a
-  reviewer that skipped every candidate from one with nothing to review. It
-  cannot tell a thorough round from a lazy one. That judgment is the reviewer's,
-  and checking it is the reason round one is read by hand.
-- Harnesses differ in what they can reach. Without a search tool the seeking
-  agent can still fetch pages it can name, but it will lean on published
-  accessibility resources rather than finding new material.
-- Coverage targets are a first guess and have not survived contact with the web.
-  If a sub-type turns out not to exist in the wild at the volume assumed, that
-  is a finding about the taxonomy, to be recorded rather than worked around.
+- The harvester reads the HTML as served. Pages that render their interface in
+  JavaScript yield nothing, which is why the `webapp` sector is the thinnest and
+  why its seed list leans on issue trackers, wikis and forums. Fixing this means
+  a headless browser, which means dependencies.
+- Icon fonts, CSS background images, and inline SVG drawn from a sprite are all
+  skipped. Their bytes cannot be archived from the markup alone, and an item with
+  no archivable image cannot be scored once its page changes. The sprite case is
+  `<svg><use xlink:href="#icon-search"></use></svg>`, where the shape lives in a
+  symbol defined elsewhere: written out on its own the file is a blank rectangle.
+  It was 8 percent of the first real harvest, so this is a real loss of coverage,
+  not a rare edge. Fixing it means resolving the reference against the page and
+  recording a graphic that is no longer a slice of the source.
+- The accessible name computation is a useful subset of the accname
+  specification, not an implementation of it. One deliberate simplification: when
+  a control has both its own visible text and an image with alt text, the source
+  is recorded as `control-text`, because that is the case where the correct alt
+  is `""`.
+- The review pass is one agent's judgment on one batch. It can be wrong in both
+  directions, and it has no view across batches. The human stage exists because
+  of this, not in spite of it.
+- Coverage targets are a first guess. If a sub-type turns out not to exist in the
+  wild at the volume assumed, that is a finding about the taxonomy, to be
+  recorded in directive 00 rather than quietly worked around.
+- Nothing here can tell a thorough review turn from a lazy one. Read
+  `review/batch-NN-notes.md` and spot-check the verdicts.

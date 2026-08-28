@@ -1,200 +1,184 @@
-# Directive 00: Corpus goals and acceptance criteria
+# Directive 00: what this corpus is, and what an item is
 
-This directive is the specification. It is not run by an agent on its own.
-Every other directive in this project reads it and is bound by it. The loop in
-[04-loop.md](04-loop.md) stops when the acceptance criteria below are met.
-
-Corpus version: v0.1, functional images.
+Read this before any other directive. It is the specification. Everything else
+in this project is machinery for producing what this file describes.
 
 
-## Purpose
+## What we are building
 
-Produce a corpus of real functional images, with their real page context and an
-independently authored gold standard alt text, good enough to score AI models
-on zero-shot functional alt text quality.
+Corpus v0.1: functional images paired with the alternative text the site
+actually shipped, where that alt text is good enough to serve as a reference.
 
-The corpus is the benchmark. If the corpus is weak, every score computed from
-it is meaningless. Prefer a smaller corpus that survives adversarial review
-over a larger one that does not.
+Every item is a real image from a real page, with its bytes archived, its markup
+sliced character-for-character out of the fetched document, and its shipped alt
+text recorded. A person then confirms the pair in the corpus-validation project.
+That human confirmation is what makes the pair a reference an AI model can be
+scored against.
 
-
-## What counts as an item
-
-One item is one image, in one place, on one page, at one point in time.
-
-Each item must record:
-
-- Where the image lives, and proof that it was really there. The page URL, the
-  image URL, the verbatim markup of the image and its interactive ancestor, and
-  the date it was retrieved.
-- The image itself. A local copy under `../corpus/images/`, named after the item,
-  with its SHA-256 recorded. Written by `../tools/fetch-images.mjs`, never by an
-  agent. An item with an image URL and no copy cannot be accepted, because the
-  day its page changes there is nothing left to score.
-- What the image does. The interactive element type, and the destination or
-  action it triggers.
-- What surrounds it. The verbatim visible text inside and adjacent to the
-  control, because that text decides whether the correct answer is a label or
-  an empty alt attribute.
-- What the site shipped. The alt text that was actually present, including an
-  empty value or the absence of the attribute, and a judgment on whether it was
-  correct.
-- The existing accessible name, and where it comes from. Every item pairs an
-  image with a description someone really shipped, so the control must already
-  announce something: alt text, an `aria-label`, an `aria-labelledby`, a `title`,
-  an SVG `<title>`, or the control's own visible text.
-- The gold standard. Alt text authored independently against the criteria in
-  the repository [README.md](../../../README.md), with a written rationale.
-
-The field-by-field schema is in [../corpus/README.md](../corpus/README.md).
-
-Observed alt text and gold standard alt text are separate fields and must never
-be merged. Most functional images on the web have poor alt text. Copying it
-would encode the failure the benchmark exists to detect.
+There is no authored gold standard. Nobody in this pipeline writes alt text. The
+site's alt text is the reference, and the only question asked of it is whether
+it is good.
 
 
-## Coverage targets for v0.1
+## The collection rule
 
-Taxonomy categories and sub-types are defined in the repository
-[README.md](../../../README.md). Counts below are accepted items, meaning items
-that have passed adversarial review.
+An image whose control announces nothing is skipped entirely and never written
+to any file.
 
-- At least 250 accepted items in total.
-- At least 30 accepted items in each of the five taxonomy categories.
-- At least 20 accepted items for each named sub-type. There are seven:
-  linked standalone logos; standalone navigational links; standalone form
-  controls and image buttons; action and toggle icons; functional non-Unicode
-  emojis; linked complex graphics and image maps; structural breaks and reader
-  controls.
+This corpus pairs images with alternative descriptions. A control with no
+accessible name has no description to pair with, so it is not a corpus item, it
+is a bug on someone's website. Finding those is a different project.
+
+`tools/harvest.mjs` enforces this at the point of extraction, and
+`tools/validate.mjs` refuses any record whose `accessible_name` is empty.
 
 
-### Running toward a smaller goal
+## What an item is
 
-A run may stipulate a smaller corpus than the full 250, recorded in
-`corpus/target.txt` and set with `./run.sh --target N`. The three counts above
-scale with it, so a goal of 100 becomes 12 per category and 8 per sub-type. The
-share targets below are ratios and do not scale.
+One JSON object per line in `corpus/functional-images.jsonl`. The same shape,
+minus the review fields, is used for candidates in `pool/candidates.jsonl`.
 
-This exists so a first corpus can be finished, examined, and argued about
-before committing tens of hours to the full one. It is not a way to make the
-criteria easier: proportional scaling keeps the shape of the corpus, which is
-what makes it a benchmark rather than a pile of whatever was easiest to find.
+Written by `tools/harvest.mjs`, all mechanically:
 
-Two things follow. A corpus built to a smaller goal is a milestone, not v0.1,
-and must say so wherever it is published, because per sub-type it supports
-weaker claims. And `tools/validate.mjs` is authoritative on the effective
-targets: it prints them on every run, and where its arithmetic and this prose
-disagree, the validator is what the loop obeys.
+- `id`, `fi-` and at least four digits
+- `status`, one of `unreviewed`, `ready`, `dropped`
+- `page_url`, the page the image was found on
+- `domain`, the host of `page_url`
+- `sector`, from the seed list the URL came from
+- `image_url`, the resolved image URL, or `null` for an inline SVG
+- `implementation`, one of `img`, `inline-svg`, `input-image`, `area`
+- `element_role`, one of `link`, `button`, `input-image`, `area`, `custom`
+- `element_html`, a character-exact slice of the fetched document: the
+  interactive element with the image inside it. Never rebuilt, never retyped.
+- `surrounding_text`, the visible text near the control, up to 240 characters
+- `observed_alt`, the shipped alternative text. An empty string means `alt=""`
+  was present and deliberate. `null` means no alt attribute at all. This
+  distinction matters: `alt=""` is an author's decision that the image is
+  redundant, and sometimes it is the correct answer.
+- `accessible_name`, non-empty, what a screen reader announces for the control
+- `accessible_name_source`, one of `alt`, `aria-label`, `aria-labelledby`,
+  `title`, `svg-title`, `control-text`
+- `category` and `subtype`, proposed from the markup
+- `retrieved`, `YYYY-MM-DD`
 
+Written by `tools/fetch-images.mjs`:
 
-## Difficulty and discrimination targets
+- `image_file`, path of the archived copy relative to this project, or `null`
+- `image_sha256`, SHA-256 of that file in lowercase hex, or `null`
 
-A benchmark item is only useful if getting it right requires judgment. These
-targets keep the corpus from filling up with icons any model can label.
+Written by `tools/apply-review.mjs`, and by nothing else:
 
-- At least 15 percent of accepted items must have a gold standard of `alt=""`,
-  because adjacent text already conveys the function. Redundancy judgment is
-  where models fail most predictably, and a corpus with no empty-alt items
-  cannot measure it.
-- At least 10 percent must be dual-purpose items, functional and informative at
-  once, such as a promotional banner that both links and carries content.
-- At least 20 percent must be classified as ambiguous difficulty, meaning
-  competent alt text authors could reasonably disagree and the rationale is
-  doing real work.
-- No item may be answerable from its file name, image URL, or the site's own
-  alt text alone. If a model could produce the gold standard without seeing the
-  image or the context, the item leaks and does not belong in the corpus.
+- `review_verdict`, `keep` or `drop`
+- `review_reason`, plain prose, at least 20 characters
+- `alt_quality`, one of `good`, `weak`, `wrong`
 
-
-## Source diversity targets
-
-- No single domain may account for more than 5 percent of accepted items.
-- Each sub-type must draw on at least 8 distinct domains.
-- Include a mix of sectors: government, higher education, commerce, news,
-  documentation, web applications, and digital publications.
-- Include a mix of implementations: `<img>`, inline `<svg>`, icon fonts,
-  sprites, CSS background images, and `<input type="image">`. Record which.
+`status` is written only by `tools/apply-review.mjs`. `keep` with
+`alt_quality: good` becomes `ready`; everything else becomes `dropped`, with the
+reason kept as evidence.
 
 
-## Gold standard integrity
+## The seven sub-types
 
-- Every accepted item needs two independent gold standard passes that agree, or
-  a recorded adjudication explaining the disagreement and the resolution.
-- Independent means the second pass is authored without reading the first. It is
-  a separate turn, run from [02-second-pass.md](02-second-pass.md) over a file
-  that carries page context and no first answer, because an agent cannot forget
-  what it wrote a moment ago. A `pass-b` produced in the same turn as `pass-a` is
-  not a second pass, and the reviewer treats it as none.
-- A disagreement between the passes is a legitimate state for a candidate item
-  and the most useful thing this process produces. It is resolved by the next
-  round's seeking agent writing an adjudication, not by discarding a pass.
-- Rationales must cite the criteria they rest on, not restate the answer.
-- Where the correct answer depends on a contested reading of the guidance, say
-  so in the item rather than hiding it behind a confident label.
+Category follows from sub-type, so only the sub-type is ever chosen.
 
+Category 1, navigational links and logos:
 
-## Collection constraints
+- `linked-standalone-logo`
+- `standalone-navigational-link`
 
-- Real pages only. No synthetic images, no mockups, no invented URLs, no
-  invented markup.
-- Public pages only. Nothing behind authentication, a paywall, or a consent
-  barrier.
-- The control must already have an accessible name. An image on a control that
-  announces nothing, no alt text, no `aria-label`, no `aria-labelledby`, no
-  `title`, no SVG `<title>`, and no visible text of its own, is skipped entirely
-  and not recorded. This corpus is images paired with alternative descriptions;
-  an unnamed control has no description to pair with, and cataloguing missing alt
-  text is a different project.
+Category 2, action controls and interface toggles:
 
-  An empty `alt` attribute is not the same thing as no name. A logo with
-  `alt=""` inside a link whose own text reads "W3C Home" is named, by that text,
-  and those items are among the most valuable in the corpus: the correct answer
-  there is the empty attribute, and getting it right takes judgment rather than
-  recognition. What is excluded is the control that announces nothing at all,
-  where no source of a name exists.
+- `form-control-or-image-button`
+- `action-or-toggle-icon`
 
-  Record the name in `accessible_name` and its source in
-  `accessible_name_source`. The validator requires both, and refuses a source
-  that the rest of the record contradicts.
-- Respect `robots.txt` and site terms. If a site disallows retrieval, skip it
-  and record nothing.
-- Do not republish the image files. One local copy per item is kept under
-  `../corpus/images/` so the benchmark can be re-run and audited after the source
-  page changes; that archive is a working copy, not a distribution. Published
-  results cite each image by URL, with the context and the metadata.
-- Record a provenance note for each item covering the basis for citing it in
-  published benchmark results.
-- Both the image URL and the page URL must resolve at the time of collection.
-  Record the retrieval date so later link rot is detectable rather than silent.
+Category 3, custom interactive elements:
+
+- `functional-non-unicode-emoji`
+
+Category 4, multi-region functional graphics:
+
+- `linked-complex-graphic-or-image-map`
+
+Category 5, structural and layout controls:
+
+- `structural-break-or-reader-control`
+
+The full definitions and examples are in the repository's root `README.md`. It is
+the standard; this list exists so the field values are unambiguous.
+
+`harvest.mjs` proposes five of the seven from markup alone. It never proposes
+`functional-non-unicode-emoji` or `structural-break-or-reader-control`, because
+neither can be told from markup. The review pass assigns those.
 
 
-## Out of scope for v0.1
+## Coverage targets
 
-- Informative, decorative, text, complex, and group images. They are catalogued
-  in the repository README for context only, and are collected in later corpus
-  versions.
-- Scoring models. This project builds the corpus. Running models against it is
-  a separate project.
-- Any item requiring a subjective aesthetic judgment to answer.
+The goal for v0.1 is 250 items in `ready`. Pass `--goal N` to work toward a
+different size; the share targets are ratios and do not change.
+
+Sectors, each 8 to 25 percent of the goal:
+
+- `government`
+- `education`
+- `publishing`
+- `docs`
+- `commerce`
+- `news`
+- `webapp`
+
+The first four are where the earliest version of this project collected almost
+everything. The last three were absent entirely, which is the specific skew the
+targets and the caps exist to prevent.
+
+Sub-types, each at least 5 percent of the goal. The two that need judgment will
+be the thinnest; that is expected, and `tools/select.mjs` fills the thinnest
+bucket first.
+
+Concentration caps, enforced in `tools/select.mjs`, in code:
+
+- one item per image and role pair, across the whole corpus
+- at most 2 items from any one page
+- at most 5 percent of the goal from any one domain
+
+These are enforced rather than requested. An earlier version of this project
+stated coverage targets in prose here and had a validator that checked something
+narrower, and the corpus skewed exactly where the prose was not enforced. If a
+target matters, it belongs in `select.mjs` or in `validate.mjs`, not only here.
+
+`tools/validate.mjs` reports every target and marks what is short or over. It
+never fails a run for thin coverage: thin coverage is a reason to harvest more
+seeds, not an error.
 
 
-## Acceptance criteria
+## Politeness
 
-The loop stops when all of the following hold at once, verified against the
-corpus file and the two most recent review reports:
+Collection is polite, and this is not negotiable:
 
-1. Every coverage target is met.
-2. Every difficulty and discrimination target is met.
-3. Every source diversity target is met.
-4. Every accepted item has two agreeing independent gold standards, or a
-   recorded adjudication, a local copy of its image matching the recorded hash,
-   and a recorded accessible name.
-5. At least 95 percent of accepted items carry no unresolved blocking
-   finding. A blocking finding stays open until a later review of that same item
-   clears it, so it cannot age out simply because the loop moved on.
-6. Two consecutive adversarial review rounds have produced zero new blocking
-   corpus-level findings.
+- `robots.txt` is honoured. Longest matching rule wins, `Allow` beats `Disallow`
+  at equal length, and an unreachable `robots.txt` is treated as permissive.
+- One request at a time, one second between requests to the same host.
+- A cap on pages fetched per host.
+- A declared user agent naming this project and its repository.
+- Nothing behind a login, a paywall, or a consent wall.
+- Images are archived once. Nothing is re-fetched to check it.
 
-Criterion 6 is the real gate. Counts can be reached by grinding. Two quiet
-review rounds in a row mean the reviewer has stopped finding new classes of
-defect, which is the closest available signal that the corpus is sound.
+
+## What is deliberately out of scope for v0.1
+
+- Icon fonts and CSS background images. Their bytes cannot be archived from the
+  markup alone, and an item with no archivable image cannot be scored after its
+  page changes.
+- Inline SVG drawn from a sprite, meaning
+  `<svg><use xlink:href="#icon-search"></use></svg>`, where the shape lives in a
+  symbol defined elsewhere on the page. Same reason: written out on its own the
+  file is a blank rectangle. This one costs real coverage rather than a rare edge
+  case. It was 8 percent of the first harvest, and it falls hardest on exactly the
+  controls this corpus wants, because a site with a well-built icon system is
+  usually a site that labels its icons. Fixing it means resolving the reference
+  against the page and recording a graphic that is no longer a slice of the
+  source, which is a change to what an item is.
+- JavaScript-rendered pages. The harvester reads the HTML as served. This is why
+  the `webapp` sector will stay thin until the harvester grows a headless
+  browser, and it is an honest limit rather than a hidden one.
+- Informative, decorative, complex, and text images. Later corpora.
+- Authoring alt text. Not this project, and by design not any project here.

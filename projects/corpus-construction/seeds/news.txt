@@ -1,0 +1,14 @@
+# News and journalism. Also absent from the first version of this corpus.
+# Share buttons, section navigation, audio and video controls, bylines.
+
+https://apnews.com/
+https://www.npr.org/
+https://text.npr.org/
+https://www.bbc.co.uk/news
+https://www.theguardian.com/international
+https://www.propublica.org/
+https://www.aljazeera.com/
+https://www.reuters.com/
+https://www.pbs.org/newshour/
+https://www.chicagotribune.com/
+https://www.wired.com/

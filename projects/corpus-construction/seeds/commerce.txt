@@ -1,0 +1,19 @@
+# Retail and commerce. Absent entirely from the first version of this corpus,
+# and the richest source of cart, wishlist, quantity and filter controls.
+#
+# Several of these restrict crawling. The harvester honours robots.txt, so a
+# refused host simply yields nothing and says so. Leaving the URL here records
+# that it was tried.
+
+https://bookshop.org/
+https://www.powells.com/
+https://www.thriftbooks.com/
+https://www.barnesandnoble.com/
+https://www.lulu.com/
+https://www.rei.com/
+https://www.ikea.com/us/en/
+https://www.patagonia.com/
+https://shop.mozilla.org/
+https://www.etsy.com/
+https://www.newegg.com/
+https://www.wayfair.com/
