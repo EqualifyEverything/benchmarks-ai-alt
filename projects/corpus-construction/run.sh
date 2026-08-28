@@ -563,6 +563,7 @@ seed_corpus() {
       id: "fi-0001", status: "unreviewed",
       page_url: "https://example.gov/help", domain: "example.gov",
       sector: "government", image_url: null,
+      image_svg: "<svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M0 0 2 2\"/></svg>",
       image_file: "pool/images/fi-0001.svg", image_sha256: sha,
       implementation: "inline-svg", element_role: "button",
       element_html: "<button><svg xmlns=\"http://www.w3.org/2000/svg\"></svg></button>",

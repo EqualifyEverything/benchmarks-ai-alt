@@ -96,8 +96,9 @@ yet.
 
 Then it downloads the bytes of every shortlisted image into `pool/images/`, names
 each file after its item, records a SHA-256, and re-checks the copies already
-there. Inline SVG and `data:` URIs need no request; their bytes come from the
-markup. One request per second per host, as in the harvest.
+there. Inline SVG and `data:` URIs need no request: an inline SVG's bytes are the
+standalone document the harvester already assembled from the page. One request per
+second per host, as in the harvest.
 
 A URL that no longer resolves is an ordinary outcome: that candidate keeps its
 URL and cannot be selected until a copy exists. A copy whose bytes changed under
@@ -228,10 +229,11 @@ the fetched document, and the model is asked only for judgment.
 - `seeds/`. One plain text URL list per sector. See
   [seeds/README.md](seeds/README.md).
 - `adapters/`. One small file per harness, plus the contract for adding another.
-- `pool/candidates.jsonl`. Everything the harvester found, append-only.
+- `pool/candidates.jsonl`. Everything the harvester found, append-only. Not
+  committed: tens of megabytes, and harvesting again rebuilds it.
 - `pool/shortlist.jsonl`. The candidates worth downloading, append-only. Same
   shape, and the only rows that carry `image_file` and `image_sha256` before
-  selection.
+  selection. Not committed either.
 - `pool/images/`. One byte copy of each image, named after its item and linked
   from the record. The one exception to the plain text rule in
   [../../AGENTS.md](../../AGENTS.md), because it is the artefact under test.
@@ -297,14 +299,15 @@ Every tool runs on its own, and every one has an offline self-test:
   JavaScript yield nothing, which is why the `webapp` sector is the thinnest and
   why its seed list leans on issue trackers, wikis and forums. Fixing this means
   a headless browser, which means dependencies.
-- Icon fonts, CSS background images, and inline SVG drawn from a sprite are all
-  skipped. Their bytes cannot be archived from the markup alone, and an item with
-  no archivable image cannot be scored once its page changes. The sprite case is
-  `<svg><use xlink:href="#icon-search"></use></svg>`, where the shape lives in a
-  symbol defined elsewhere: written out on its own the file is a blank rectangle.
-  It was 8 percent of the first real harvest, so this is a real loss of coverage,
-  not a rare edge. Fixing it means resolving the reference against the page and
-  recording a graphic that is no longer a slice of the source.
+- Icon fonts, CSS background images, and inline SVG whose sprite is in another
+  file are skipped. Their bytes cannot be archived from the markup alone, and an
+  item with no archivable image cannot be scored once its page changes. A sprite
+  defined in the same page is archived: the harvester copies the referenced
+  symbol into the SVG it writes, which is the one place an archived image is
+  assembled rather than sliced. It has to be, because an `<svg>` lifted out of
+  HTML carries neither its namespace nor its coordinate space. Getting this wrong
+  cost 4,169 of the 14,770 named controls the first real harvest found, 28
+  percent, all of them archived as blank rectangles.
 - The accessible name computation is a useful subset of the accname
   specification, not an implementation of it. One deliberate simplification: when
   a control has both its own visible text and an image with alt text, the source

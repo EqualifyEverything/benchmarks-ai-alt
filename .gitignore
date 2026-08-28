@@ -1,0 +1,8 @@
+# The candidate pool is a work area, not a result. A harvest of a few dozen seeds
+# writes tens of megabytes of JSON Lines, all of it reproducible by harvesting
+# again, and only a few hundred rows of it ever become corpus items.
+projects/corpus-construction/pool/candidates.jsonl
+projects/corpus-construction/pool/shortlist.jsonl
+
+# The archived image bytes are the exception: they are committed, because their
+# whole purpose is to stay scoreable after the pages they came from change.

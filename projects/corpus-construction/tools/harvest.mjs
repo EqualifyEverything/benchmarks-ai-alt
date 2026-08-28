@@ -50,8 +50,11 @@ const SURROUNDING_LIMIT = 240
 
 // SVG elements that actually put marks on the canvas. An inline SVG with none of
 // them draws nothing on its own, which in practice means its shape comes from a
-// `<use>` reference to a sprite defined elsewhere on the page.
+// `<use>` reference to a sprite symbol defined elsewhere.
 const SVG_PAINTS = /<(path|circle|rect|polygon|polyline|line|ellipse|text|image|foreignObject)\b/i
+
+const SVG_NS = 'http://www.w3.org/2000/svg'
+const XLINK_NS = 'http://www.w3.org/1999/xlink'
 
 // Roles that make an element interactive for our purposes, mapped to the role we
 // record. A custom control with role="button" is as functional as a `<button>`.
@@ -188,6 +191,78 @@ function surroundingText(control, image) {
   return visibleText(parent, { skip: control }).slice(0, SURROUNDING_LIMIT)
 }
 
+function descendants(node) {
+  const out = []
+  const walk = (n) => {
+    for (const child of n.children) {
+      if (child.text !== undefined) continue
+      out.push(child)
+      walk(child)
+    }
+  }
+  walk(node)
+  return out
+}
+
+// A slice of a page is not a document. Inside HTML an `<svg>` inherits its
+// namespaces from the parser and its size from CSS; written to a file on its own
+// it has to declare both or it renders as nothing.
+function asSvgDocument(svg, viewBox) {
+  const openEnd = svg.indexOf('>')
+  const open = svg.slice(0, openEnd)
+  const has = (name) => new RegExp(`\\s${name}\\s*=`, 'i').test(open)
+  let add = ''
+  if (!has('xmlns')) add += ` xmlns="${SVG_NS}"`
+  if (/xlink:/i.test(svg) && !has('xmlns:xlink')) {
+    add += ` xmlns:xlink="${XLINK_NS}"`
+  }
+  if (!has('viewBox') && typeof viewBox === 'string' && viewBox.trim() !== '') {
+    add += ` viewBox="${viewBox.trim()}"`
+  }
+  return open + add + svg.slice(openEnd)
+}
+
+// A standalone SVG document for an inline SVG: its own markup, plus the sprite
+// symbols its `<use>` elements point at, copied into a `<defs>` block. This is
+// what makes the archived file a picture instead of a blank rectangle, and it is
+// why 28 percent of named controls are collectable at all.
+//
+// Null means the graphic cannot be rebuilt from this page: the sprite lives in
+// another file, or the element paints nothing and references nothing. Unlike
+// `element_html`, which is always a character-exact slice, the archived image is
+// allowed to be assembled. It has to be: an SVG needs its namespace declared.
+export function standaloneSvg(tree, node) {
+  const html = outerHtml(tree, node)
+  const openEnd = html.indexOf('>')
+  if (!/^<svg[\s/>]/i.test(html) || openEnd === -1) return null
+  if (html.lastIndexOf('</svg>') < openEnd) return null
+
+  const defs = []
+  let viewBox = null
+  for (const el of descendants(node)) {
+    if (el.tag !== 'use') continue
+    const ref = (attr(el, 'href') ?? attr(el, 'xlink:href') ?? '').trim()
+    // An external reference, `href="/sprite.svg#icon"`, needs a request we are
+    // not making and bytes this page never carried.
+    if (!ref.startsWith('#') || ref.length < 2) return null
+    const target = tree.byId.get(ref.slice(1))
+    if (target === undefined) return null
+    const symbol = outerHtml(tree, target)
+    if (!SVG_PAINTS.test(symbol)) return null
+    // The symbol carries the coordinate space the icon was drawn in. Without it
+    // the shape lands in a corner of a default-sized canvas.
+    if (viewBox === null) viewBox = attr(target, 'viewbox')
+    if (!defs.includes(symbol)) defs.push(symbol)
+  }
+
+  if (defs.length === 0) {
+    return SVG_PAINTS.test(html) ? asSvgDocument(html, null) : null
+  }
+  const withDefs = html.slice(0, openEnd + 1) +
+    `<defs>${defs.join('')}</defs>` + html.slice(openEnd + 1)
+  return asSvgDocument(withDefs, viewBox)
+}
+
 function findNode(tree, pred) {
   let hit = null
   const walk = (n) => {
@@ -230,7 +305,7 @@ function isImage(node) {
 export function harvestDoc(doc, pageUrl, sector, retrieved) {
   const tree = parse(doc)
   const found = []
-  const skipped = { noControl: 0, noName: 0, noImage: 0, spriteOnly: 0,
+  const skipped = { noControl: 0, noName: 0, noImage: 0, spriteMissing: 0,
     duplicateOnPage: 0 }
   const seen = new Set()
   let domain
@@ -253,13 +328,15 @@ export function harvestDoc(doc, pageUrl, sector, retrieved) {
 
     const imageUrl = imageUrlFor(tree, node, pageUrl)
     if (imageUrl === null && node.tag !== 'svg') { skipped.noImage++; return }
-    // An inline SVG whose shape comes from a `<use>` reference to a sprite
-    // defined elsewhere is not archivable from this markup: written out on its
-    // own it is a blank rectangle, and a blank rectangle cannot be judged
-    // against its alt text. Same reason directive 00 leaves icon fonts out.
-    if (node.tag === 'svg' && !SVG_PAINTS.test(outerHtml(tree, node))) {
-      skipped.spriteOnly++
-      return
+
+    // An inline SVG is archived from the page's own bytes, sprite symbols and
+    // all. When that cannot be done the graphic is a blank rectangle, and a
+    // blank rectangle cannot be judged against its alt text, so it is not an
+    // item. Same reason directive 00 leaves icon fonts out.
+    let svg = null
+    if (node.tag === 'svg') {
+      svg = standaloneSvg(tree, node)
+      if (svg === null) { skipped.spriteMissing++; return }
     }
 
     const role = roleOf(control)
@@ -275,6 +352,7 @@ export function harvestDoc(doc, pageUrl, sector, retrieved) {
       domain,
       sector,
       image_url: imageUrl,
+      image_svg: svg,
       image_file: null,
       image_sha256: null,
       implementation: IMPLEMENTATION[node.tag],
@@ -556,7 +634,7 @@ export async function crawl(seeds, fetcher, opts) {
 
   const items = []
   const totals = { pages: 0, failed: 0, disallowed: 0 }
-  const skipped = { noControl: 0, noName: 0, noImage: 0, spriteOnly: 0,
+  const skipped = { noControl: 0, noName: 0, noImage: 0, spriteMissing: 0,
     duplicateOnPage: 0 }
 
   for (const [host, queue] of queues) {
@@ -605,13 +683,15 @@ export async function crawl(seeds, fetcher, opts) {
 
 const FIXTURE_PAGES = {
   'shop.html': `<!doctype html><html><body>
+<svg hidden><symbol id="i-search" viewBox="0 0 16 16"><path d="M1 1 8 8"/></symbol></svg>
 <header>
   <a href="/"><img src="/img/logo.png" alt="Northwind"></a>
   <a href="/cart"><img src="/img/cart.svg" alt="Cart, 3 items"></a>
   <a href="/help"><img src="/img/q.svg" alt="">Help centre</a>
   <a href="/x"><img src="/img/unnamed.svg"></a>
   <button type="button"><svg viewBox="0 0 2 2"><title>Close</title><path d="M0 0 2 2"/></svg></button>
-  <button type="button"><svg class="i" aria-label="Filter"><use xlink:href="#i-filter"></use></svg></button>
+  <button type="button"><svg class="i" aria-label="Search site"><use xlink:href="#i-search"></use></svg></button>
+  <button type="button"><svg class="i" aria-label="Filter"><use href="/sprite.svg#i-filter"></use></svg></button>
   <form action="/s"><input type="image" src="/img/go.gif" alt="Search"></form>
 </header>
 <p>Body text with <a href="/deep/page">a text link</a> and no image.</p>
@@ -642,19 +722,35 @@ async function selftest() {
   const by = (id) => page.items.find((i) => i.accessible_name === id)
 
   check('every named functional image is found, and nothing else',
-    page.items.length === 7,
+    page.items.length === 8,
     `found ${page.items.length}: ${page.items.map((i) => i.accessible_name).join(' | ')}`)
 
   check('an unnamed control is skipped, not recorded',
     page.skipped.noName === 1 && by('') === undefined,
     `noName ${page.skipped.noName}`)
 
-  // An icon drawn from a sprite defined elsewhere on the page cannot be archived
-  // from this markup, so it is never collected. It was 8 percent of the first
-  // real harvest, and every one of them archived as a blank rectangle.
-  check('an inline SVG that only references a sprite is not collected',
-    page.skipped.spriteOnly === 1 && by('Filter') === undefined,
-    `spriteOnly ${page.skipped.spriteOnly}`)
+  // The sprite pattern is 28 percent of the named controls a real harvest finds.
+  // An earlier version skipped all of it, and the version before that archived
+  // every one of them as a blank rectangle.
+  const sprite = by('Search site')
+  check('a sprite defined on the page is resolved into a standalone graphic',
+    sprite !== undefined && sprite.image_svg !== null &&
+    sprite.image_svg.includes('xmlns="http://www.w3.org/2000/svg"') &&
+    sprite.image_svg.includes('xmlns:xlink=') &&
+    sprite.image_svg.includes('viewBox="0 0 16 16"') &&
+    sprite.image_svg.includes('<defs><symbol id="i-search"') &&
+    SVG_PAINTS.test(sprite.image_svg),
+    JSON.stringify(sprite?.image_svg))
+
+  check('element_html stays a slice even when the graphic is assembled',
+    sprite !== undefined &&
+    FIXTURE_PAGES['shop.html'].includes(sprite.element_html) &&
+    !FIXTURE_PAGES['shop.html'].includes(sprite.image_svg),
+    JSON.stringify(sprite?.element_html))
+
+  check('a sprite in another file is not collected',
+    page.skipped.spriteMissing === 1 && by('Filter') === undefined,
+    `spriteMissing ${page.skipped.spriteMissing}`)
 
   check('an image outside any control is skipped',
     page.skipped.noControl >= 1 &&
@@ -955,7 +1051,7 @@ async function main(argv) {
   process.stdout.write(`  no interactive ancestor:  ${skipped.noControl}\n`)
   process.stdout.write(`  no accessible name:       ${skipped.noName}\n`)
   process.stdout.write(`  no image URL:             ${skipped.noImage}\n`)
-  process.stdout.write(`  sprite reference only:    ${skipped.spriteOnly}\n`)
+  process.stdout.write(`  sprite not on the page:   ${skipped.spriteMissing}\n`)
   process.stdout.write(`  duplicate on the page:    ${skipped.duplicateOnPage}\n`)
 
   if (fresh.length === 0) {

@@ -33,6 +33,13 @@ Written by `../tools/harvest.mjs`:
   or `webapp`. Comes from the seed list the URL was in.
 - `image_url`. The resolved image URL, or a `data:` URI, or `null` for an inline
   SVG. Required for `img`, `input-image` and `area`; forbidden for `inline-svg`.
+- `image_svg`. For `inline-svg` only, and required there: a standalone SVG
+  document, starting `<svg` and declaring `xmlns`. It is the element's own markup
+  with the sprite symbols its `<use>` elements referenced copied into a `<defs>`
+  block, plus the namespace and, where the element had none, the symbol's
+  `viewBox`. `null` for every other implementation. This is the only field in the
+  record that is assembled rather than copied out of the page, and it exists
+  because an `<svg>` lifted out of HTML renders as nothing on its own.
 - `implementation`. `img`, `inline-svg`, `input-image`, or `area`.
 - `element_role`. `link`, `button`, `input-image`, `area`, or `custom`. What the
   interactive element around the image is.

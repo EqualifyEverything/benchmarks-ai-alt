@@ -111,7 +111,22 @@ export function checkItem(item, where) {
       JSON.stringify(item.image_url))
   }
   if (item.implementation === 'inline-svg' && item.image_url !== null) {
-    bad('an inline SVG has no `image_url`: its bytes are in `element_html`')
+    bad('an inline SVG has no `image_url`: its bytes are in `image_svg`')
+  }
+
+  // image_svg is the one field that is assembled rather than sliced, because an
+  // SVG lifted out of an HTML page needs its namespace declared and its sprite
+  // symbols copied in before it is a file anyone can open.
+  if (item.implementation === 'inline-svg') {
+    if (!isStr(item.image_svg)) {
+      bad('an inline SVG needs an `image_svg`, the standalone document ' +
+        'harvest.mjs assembled from the page')
+    } else if (!item.image_svg.startsWith('<svg') ||
+        !item.image_svg.includes('xmlns=')) {
+      bad('`image_svg` must be a standalone `<svg>` document, namespace declared')
+    }
+  } else if (item.image_svg !== null) {
+    bad('only an inline SVG carries an `image_svg`')
   }
 
   // element_html is a slice of the fetched page, never rebuilt. We cannot verify
@@ -324,7 +339,7 @@ function selftest() {
     id: 'fi-0001', status: 'unreviewed',
     page_url: 'https://example.gov/help', domain: 'example.gov',
     sector: 'government', image_url: 'https://example.gov/i/print.png',
-    image_file: null, image_sha256: null, implementation: 'img',
+    image_svg: null, image_file: null, image_sha256: null, implementation: 'img',
     element_role: 'button',
     element_html: '<button><img src="/i/print.png" alt="Print this page"></button>',
     surrounding_text: 'Print this page Share Save',
@@ -375,13 +390,25 @@ function selftest() {
   check('a domain that disagrees with the page URL is rejected',
     checkItem(item({ domain: 'elsewhere.gov' }), 'x')
       .some((e) => e.includes('is on example.gov')))
+  const inlineSvg = (over = {}) => item({
+    implementation: 'inline-svg', image_url: null,
+    image_svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2">' +
+      '<path d="M0 0 2 2"/></svg>', ...over,
+  })
   check('an inline SVG carrying an image URL is rejected',
-    checkItem(item({ implementation: 'inline-svg' }), 'x')
+    checkItem(inlineSvg({ image_url: 'https://example.gov/i/x.svg' }), 'x')
       .some((e) => e.includes('no `image_url`')))
-  check('an inline SVG with no image URL passes',
-    checkItem(item({ implementation: 'inline-svg', image_url: null }), 'x')
-      .length === 0,
-    JSON.stringify(checkItem(item({ implementation: 'inline-svg', image_url: null }), 'x')))
+  check('an inline SVG with an assembled document passes',
+    checkItem(inlineSvg(), 'x').length === 0,
+    JSON.stringify(checkItem(inlineSvg(), 'x')))
+  // The item would archive as a blank rectangle, and blank rectangles cannot be
+  // judged against alt text. harvest.mjs never writes one; this is the backstop.
+  check('an inline SVG with no assembled document is rejected',
+    checkItem(inlineSvg({ image_svg: null }), 'x')
+      .some((e) => e.includes('needs an `image_svg`')))
+  check('an image that is not inline SVG must not carry an image_svg',
+    checkItem(item({ image_svg: '<svg xmlns="x"></svg>' }), 'x')
+      .some((e) => e.includes('only an inline SVG')))
   check('markup that was written rather than sliced is rejected',
     checkItem(item({ element_html: 'button with a print icon' }), 'x')
       .some((e) => e.includes('slice of')))

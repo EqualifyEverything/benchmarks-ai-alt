@@ -11,7 +11,7 @@
 // Three sources of bytes, all handled here:
 //   an http or https URL   fetched, once, politely
 //   a data: URI            decoded, no request
-//   inline SVG             taken from `element_html`, no request
+//   inline SVG             written from `image_svg`, no request
 //
 // Two fields per item, written here and nowhere else:
 //   image_file    project-relative path of the copy, or null when there is none
@@ -173,45 +173,16 @@ function existingArchive(imagesDir, id) {
 function needsArchive(item) {
   if (!WORTH_ARCHIVING.includes(item.status)) return false
   if (isStr(item.image_file) && item.image_file !== '') return false
-  // Inline SVG has no URL; its bytes are the markup we already hold.
-  if (item.implementation === 'inline-svg') {
-    return isStr(item.element_html) && item.element_html.includes('<svg')
-  }
+  // Inline SVG has no URL. Its bytes are `image_svg`, the standalone document
+  // tools/harvest.mjs assembled from the page: the element's own markup plus any
+  // sprite symbols it referenced. There is nothing to fetch and nothing to
+  // reconstruct here, which is deliberate — the harvester is the only thing that
+  // reads pages.
+  // reads pages. A record with neither a copy nor an `image_svg` is a defect, and
+  // returning true here is what makes it show up as one instead of passing
+  // quietly as nothing to do.
+  if (item.implementation === 'inline-svg') return true
   return isStr(item.image_url) && item.image_url !== ''
-}
-
-// Elements that actually put marks on the canvas. An SVG with none of them draws
-// nothing, whatever else it contains.
-const SVG_PAINTS = /<(path|circle|rect|polygon|polyline|line|ellipse|text|image|foreignObject)\b/i
-
-// The `<svg>` element out of a recorded control, as a standalone file. Written so
-// that a reviewer and the human validator can open the icon on its own, which is
-// the only way to judge whether the alt text describes it.
-//
-// Returns `{ bytes }` or `{ error }`.
-function svgFromMarkup(html) {
-  const at = html.indexOf('<svg')
-  const to = html.lastIndexOf('</svg>')
-  if (at === -1 || to === -1 || to < at) {
-    return { error: 'element_html has no complete <svg> element to write' }
-  }
-  const body = html.slice(at, to + 6)
-  // The sprite case, and it is common: the control holds
-  // `<svg><use xlink:href="#icon-search"></use></svg>` and the shape lives in a
-  // symbol defined elsewhere on the page or in a separate file. Written out on
-  // its own the file is a blank rectangle. Nobody can judge whether the alt text
-  // describes a blank rectangle, so this is refused for the same reason directive
-  // 00 puts icon fonts out of scope: the bytes are not archivable from the
-  // markup, and an item with no archivable image cannot be scored.
-  if (!SVG_PAINTS.test(body)) {
-    return { error: 'the inline SVG paints nothing on its own, it references a ' +
-      'sprite defined elsewhere on the page' }
-  }
-  return {
-    bytes: Buffer.from(body.includes('xmlns')
-      ? body
-      : body.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')),
-  }
 }
 
 // A data: URI carries its own bytes. Common for small icons, and there is no
@@ -342,13 +313,13 @@ async function archive(corpusPath, imagesDir, get, { dryRun = false } = {}) {
 
     // Inline SVG: no request, the bytes are already in the record.
     if (item.implementation === 'inline-svg') {
-      const { bytes, error: svgError } = svgFromMarkup(item.element_html)
-      if (bytes === undefined) {
-        failed.push(`${id}: ${svgError}`)
+      if (!isStr(item.image_svg)) {
+        failed.push(`${id}: the record carries no image_svg to write`)
         continue
       }
+      const bytes = Buffer.from(item.image_svg, 'utf8')
       if (dryRun) {
-        notes.push(`${id}: would write the inline SVG from element_html`)
+        notes.push(`${id}: would write ${bytes.length} bytes from image_svg`)
         archived++
         continue
       }
@@ -560,20 +531,19 @@ function selftest() {
       read()[0].image_file === null && r.notes.some((n) => n.includes('would fetch')),
       `${r.calls.length} request(s), notes ${r.notes.join('; ')}`)
 
-    // Inline SVG needs no request: the bytes come out of the recorded markup,
-    // and an xmlns is added so the file opens on its own in a browser.
+    // Inline SVG needs no request: harvest.mjs already assembled a standalone
+    // document, and this only writes it out byte for byte.
+    const svgDoc = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2">' +
+      '<title>Close</title><path d="M0 0 2 2"/></svg>'
     r = await run([item('fi-0011', {
-      image_url: null, implementation: 'inline-svg',
-      element_html: '<button><svg viewBox="0 0 2 2"><title>Close</title>' +
-        '<path d="M0 0 2 2"/></svg></button>',
+      image_url: null, implementation: 'inline-svg', image_svg: svgDoc,
     })], { error: 'should not be called' })
     rec = read()[0]
     const svgPath = join(imagesDir, 'fi-0011.svg')
-    check('inline SVG is written from the markup with no request',
+    check('inline SVG is written from image_svg with no request',
       r.calls.length === 0 && r.archived === 1 &&
       rec.image_file === 'pool/images/fi-0011.svg' && existsSync(svgPath) &&
-      readFileSync(svgPath, 'utf8').includes('xmlns') &&
-      readFileSync(svgPath, 'utf8').includes('<title>Close</title>'),
+      readFileSync(svgPath, 'utf8') === svgDoc,
       `${r.calls.length} request(s), ${r.failed.join('; ')}`)
 
     // A data URI carries its own bytes, and the type is sniffed when the URI
@@ -604,18 +574,19 @@ function selftest() {
       clean && caught && missing,
       `clean ${clean}, changed ${caught}, missing ${missing}`)
 
-    // An inline SVG that only references a sprite symbol writes a blank file.
-    // Refused, and the item keeps no image, so it can never be selected: nobody
-    // can judge whether alt text describes a blank rectangle.
+    // An inline-svg record with no image_svg cannot be archived here, and this
+    // tool does not go looking: reconstructing a graphic needs the whole page,
+    // which only harvest.mjs ever has. Refused, so the item keeps no image and
+    // can never be selected.
     r = await run([item('fi-0013', {
-      image_url: null, implementation: 'inline-svg',
+      image_url: null, implementation: 'inline-svg', image_svg: null,
       element_html: '<a href="#"><svg class="icon" aria-hidden="true">' +
         '<use xlink:href="#icon-search"></use></svg>Search</a>',
     })], { error: 'should not be called' })
     rec = read()[0]
-    check('an inline SVG that only references a sprite is refused',
+    check('an inline SVG with no assembled document is refused',
       r.archived === 0 && r.failed.length === 1 &&
-      r.failed[0].includes('paints nothing') && rec.image_file === null &&
+      r.failed[0].includes('no image_svg') && rec.image_file === null &&
       !existsSync(join(imagesDir, 'fi-0013.svg')),
       `${r.archived} archived, ${r.failed.join('; ')}`)
 

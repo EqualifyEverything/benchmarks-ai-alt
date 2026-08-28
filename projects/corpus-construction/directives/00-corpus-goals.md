@@ -46,6 +46,10 @@ Written by `tools/harvest.mjs`, all mechanically:
 - `domain`, the host of `page_url`
 - `sector`, from the seed list the URL came from
 - `image_url`, the resolved image URL, or `null` for an inline SVG
+- `image_svg`, for an inline SVG only: a standalone SVG document assembled from
+  the page, sprite symbols copied in and the namespace declared. `null` for
+  every other implementation. This is the one field that is built rather than
+  sliced, because an `<svg>` lifted out of HTML is not yet a file.
 - `implementation`, one of `img`, `inline-svg`, `input-image`, `area`
 - `element_role`, one of `link`, `button`, `input-image`, `area`, `custom`
 - `element_html`, a character-exact slice of the fetched document: the
@@ -168,15 +172,14 @@ Collection is polite, and this is not negotiable:
 - Icon fonts and CSS background images. Their bytes cannot be archived from the
   markup alone, and an item with no archivable image cannot be scored after its
   page changes.
-- Inline SVG drawn from a sprite, meaning
-  `<svg><use xlink:href="#icon-search"></use></svg>`, where the shape lives in a
-  symbol defined elsewhere on the page. Same reason: written out on its own the
-  file is a blank rectangle. This one costs real coverage rather than a rare edge
-  case. It was 8 percent of the first harvest, and it falls hardest on exactly the
+- Inline SVG whose sprite is not in the page it was found on, meaning
+  `<svg><use href="/sprite.svg#icon-search">`. The referenced shape is in another
+  file, so the same reason applies. A sprite defined in the same document *is*
+  archived: the harvester copies the referenced symbol into the SVG it writes.
+  That case is not an edge. It was 4,169 of the 14,770 named controls the first
+  real harvest found, 28 percent, and skipping it fell hardest on exactly the
   controls this corpus wants, because a site with a well-built icon system is
-  usually a site that labels its icons. Fixing it means resolving the reference
-  against the page and recording a graphic that is no longer a slice of the
-  source, which is a change to what an item is.
+  usually a site that labels its icons.
 - JavaScript-rendered pages. The harvester reads the HTML as served. This is why
   the `webapp` sector will stay thin until the harvester grows a headless
   browser, and it is an honest limit rather than a hidden one.
