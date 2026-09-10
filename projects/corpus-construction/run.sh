@@ -8,6 +8,7 @@
 #   ./run.sh --prompt review      print the next batch prompt instead
 #   ./run.sh --apply-review 1     apply review/batch-01.jsonl
 #   ./run.sh --export             hand the ready items to corpus-validation
+#   ./run.sh --cleanup            report archived images nothing needs any more
 #   ./run.sh --status             validate and report coverage
 #   ./run.sh --selftest           offline, no network, no agent
 #
@@ -21,6 +22,9 @@
 #   review    an agent. Judges whether each image is functional and whether the
 #             alt text the site shipped is good.
 #   export    a script. Writes what people will review.
+#   cleanup   a script. Deletes archived bytes no corpus item needs. Reports
+#             unless you pass --apply, because an archive is easier to delete
+#             than to rebuild.
 #
 # Everything mechanical is mechanical on purpose. An earlier version of this
 # project asked an agent to find pages, read them, and retype the markup, and it
@@ -74,6 +78,7 @@ SELECT="$PROJECT/tools/select.mjs"
 APPLY="$PROJECT/tools/apply-review.mjs"
 EXPORT="$PROJECT/tools/export.mjs"
 VALIDATE="$PROJECT/tools/validate.mjs"
+CLEANUP="$PROJECT/tools/cleanup.mjs"
 
 ADAPTERS="${ADAPTERS:-$PROJECT/adapters}"
 
@@ -89,6 +94,8 @@ AGENT_LABEL=""
 SECTOR=""
 ADD=""
 BATCH=""
+CLEANUP_APPLY=""
+CLEANUP_DROP=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -108,6 +115,9 @@ while [ $# -gt 0 ]; do
       esac ;;
     --apply-review) MODE=apply; BATCH="${2:-}"; shift; shift ;;
     --export) MODE=export; shift ;;
+    --cleanup) MODE=cleanup; shift ;;
+    --apply) CLEANUP_APPLY=1; shift ;;
+    --drop-unselected) CLEANUP_DROP=1; shift ;;
     --status) MODE=status; shift ;;
     --next-batch) MODE=next-batch; shift ;;
     --selftest) MODE=selftest; shift ;;
@@ -132,6 +142,14 @@ case "$BATCH_SIZE" in
   ''|*[!0-9]*|0) echo "run.sh: --batch-size needs a whole number of 1 or more" >&2
     exit 3 ;;
 esac
+
+# --apply and --drop-unselected only mean something to cleanup. Silently
+# ignoring them elsewhere would let "--export --apply" read as deliberate.
+if [ "$MODE" != cleanup ] && \
+   { [ -n "$CLEANUP_APPLY" ] || [ -n "$CLEANUP_DROP" ]; }; then
+  echo "run.sh: --apply and --drop-unselected belong to --cleanup" >&2
+  exit 3
+fi
 
 if [ "$MODE" = select ]; then
   case "$ADD" in
@@ -224,6 +242,7 @@ write_batch_input() {
         item_id: item.id,
         image_file: item.image_file,
         image_url: item.image_url,
+        image_coord_space: item.image_coord_space,
         page_url: item.page_url,
         implementation: item.implementation,
         element_role: item.element_role,
@@ -512,6 +531,13 @@ case "$MODE" in
     rc=$?
     [ "$rc" -le 1 ] || exit "$rc"
     exit "$rc" ;;
+
+  cleanup)
+    set --
+    [ -n "$CLEANUP_APPLY" ] && set -- "$@" --apply
+    [ -n "$CLEANUP_DROP" ] && set -- "$@" --drop-unselected
+    node "$CLEANUP" --corpus "$CORPUS" "$@"
+    exit $? ;;
 esac
 
 # --- self-test ------------------------------------------------------------
@@ -529,6 +555,8 @@ rule
 node "$APPLY" --selftest || exit 3
 rule
 node "$EXPORT" --selftest || exit 3
+rule
+node "$CLEANUP" --selftest || exit 3
 rule
 node "$VALIDATE" --selftest || exit 3
 rule
@@ -562,7 +590,7 @@ seed_corpus() {
     fs.writeFileSync(out, JSON.stringify({
       id: "fi-0001", status: "unreviewed",
       page_url: "https://example.gov/help", domain: "example.gov",
-      sector: "government", image_url: null,
+      sector: "government", image_url: null, image_coord_space: null,
       image_svg: "<svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M0 0 2 2\"/></svg>",
       image_file: "pool/images/fi-0001.svg", image_sha256: sha,
       implementation: "inline-svg", element_role: "button",
@@ -638,7 +666,8 @@ fi
 leaked="$(node -e '
   const fs = require("fs")
   const rec = JSON.parse(fs.readFileSync(process.argv[1], "utf8").trim().split("\n")[0])
-  const allowed = ["item_id", "image_file", "image_url", "page_url",
+  const allowed = ["item_id", "image_file", "image_url", "image_coord_space",
+    "page_url",
     "implementation", "element_role", "element_html", "surrounding_text",
     "observed_alt", "accessible_name", "accessible_name_source",
     "proposed_category", "proposed_subtype"]

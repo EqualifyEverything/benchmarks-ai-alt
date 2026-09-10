@@ -164,6 +164,35 @@ review pass is one agent's judgment, and the point of the human stage is that it
 is not the last word.
 
 
+### 9. Drop the bytes nothing needs
+
+    ./run.sh --cleanup                          report only
+    ./run.sh --cleanup --apply                  delete the dropped and orphaned
+    ./run.sh --cleanup --apply --drop-unselected   and the untouched downloads
+
+The archive exists so a pair stays scoreable after its page changes. That reason
+only covers pairs the benchmark uses. The first full run archived 965 images and
+exported 78, so 887 were being carried for nothing.
+
+Three kinds can go, and they are not equally safe. A reviewed and dropped image
+is finished: the verdict is in `review/` with a written reason, and
+`apply-review.mjs` will not review a decided item again. An orphan no record
+mentions is finished too. But an image that was shortlisted, downloaded and never
+put in front of a reviewer is the cheapest way to grow the corpus, because the
+bytes are already here; deleting it means harvesting again, and pages change in
+between. So `--apply` alone leaves those, and `--drop-unselected` is how you say
+you want them gone anyway.
+
+Every deletion is appended to `pool/images-removed.txt` with its reason. The
+records still name the files, so without that log the next
+`fetch-images.mjs --verify` reports hundreds of deliberate deletions as copies
+that vanished and stops being a signal.
+
+It does not shrink the repository. The images are already committed, so a clone
+still fetches them from history. What it does is keep the working tree honest and
+stop the next run accumulating.
+
+
 ### If something goes wrong
 
 - `no agent to run the review with`. Nothing was named and no adapter's command
@@ -193,7 +222,7 @@ we use to build the gold standard the benchmark scores against?
 
 ## How it works
 
-Five stages. Only one needs a model.
+Five stages and a cleanup. Only one needs a model.
 
     seeds/SECTOR.txt              plain text URL lists, committed
       | tools/harvest.mjs         robots, fetch, parse, accessible name, classify
@@ -209,6 +238,10 @@ Five stages. Only one needs a model.
       | tools/apply-review.mjs    status: ready or dropped
       | tools/export.mjs
     ../corpus-validation/         a person accepts or rejects
+
+    pool/images/
+      | tools/cleanup.mjs         delete bytes nothing needs any more
+    pool/images-removed.txt       what went, and why
 
 It is not a loop with a stop condition. It is stages you re-run with more seeds
 until the coverage report says the counts are where you want them.
@@ -237,6 +270,9 @@ the fetched document, and the model is asked only for judgment.
 - `pool/images/`. One byte copy of each image, named after its item and linked
   from the record. The one exception to the plain text rule in
   [../../AGENTS.md](../../AGENTS.md), because it is the artefact under test.
+- `pool/images-removed.txt`. Every image `tools/cleanup.mjs` has deleted, with
+  its reason. A record still names the file it used to have, so this is what
+  keeps `--verify` from reading 887 deliberate deletions as corruption.
 - `corpus/functional-images.jsonl`. The items selected for review.
 - `corpus/README.md`. The field reference.
 - `review/`. Per-batch inputs, prompts, verdicts and notes. The audit trail.
@@ -256,6 +292,8 @@ the fetched document, and the model is asked only for judgment.
   thing that writes `status`.
 - `tools/export.mjs`. Hands the ready items to the corpus validation project.
 - `tools/validate.mjs`. Schema and coverage. Reports, never gates.
+- `tools/cleanup.mjs`. Deletes archived bytes nothing needs any more, and logs
+  every deletion. Reports unless you pass `--apply`.
 - `run.sh`. Drives the stages.
 
 
@@ -270,6 +308,8 @@ the fetched document, and the model is asked only for judgment.
     ./run.sh --prompt review      print the batch prompt instead
     ./run.sh --apply-review 1     apply review/batch-01.jsonl
     ./run.sh --export             write the validation corpus
+    ./run.sh --cleanup            report archived bytes nothing needs
+    ./run.sh --cleanup --apply    delete the reviewed-and-dropped ones
     ./run.sh --goal 100           work toward 100 items, not 250
     ./run.sh --batch-size 50      items in one review turn. Default: 30
     ./run.sh --agent NAME         use adapters/NAME.sh for the review
@@ -295,6 +335,7 @@ Every tool runs on its own, and every one has an offline self-test:
     node tools/apply-review.mjs 1 --dry-run
     node tools/validate.mjs --pool --json
     node tools/export.mjs --dry-run
+    node tools/cleanup.mjs --drop-unselected
     node tools/html.mjs --selftest
 
 

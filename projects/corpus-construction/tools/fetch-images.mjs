@@ -374,11 +374,30 @@ async function archive(corpusPath, imagesDir, get, { dryRun = false } = {}) {
 // The corpus says a file exists and hashes to a value. This is the only thing
 // that checks that claim against the disk. tools/validate.mjs checks the shape
 // of the reference; this checks the bytes.
-function verify(corpusPath, imagesDir) {
+// tools/cleanup.mjs deletes archived bytes on purpose and records each deletion
+// in pool/images-removed.txt. The record still names the file, so without this
+// the first cleanup turns hundreds of records into "the copy vanished" and buries
+// the one that really did. Parsed here rather than imported, because every tool
+// in this directory ends by calling process.exit and none is importable.
+export function readRemovalLog(text) {
+  const out = new Map()
+  for (const raw of String(text ?? '').split('\n')) {
+    const line = raw.trim()
+    if (line === '' || line.startsWith('#')) continue
+    const parts = line.split(/\s+/)
+    out.set(parts[0], parts[1] ?? 'unknown')
+  }
+  return out
+}
+
+function verify(corpusPath, imagesDir, removalLog = new Map()) {
   const { rows, errors } = readJsonl(corpusPath)
-  if (errors.length > 0) return { errors, problems: [], checked: 0, orphans: [] }
+  if (errors.length > 0) {
+    return { errors, problems: [], checked: 0, orphans: [], removed: [] }
+  }
 
   const problems = []
+  const removed = []
   const referenced = new Set()
   let checked = 0
   for (const { value: item } of rows) {
@@ -387,8 +406,12 @@ function verify(corpusPath, imagesDir) {
     referenced.add(name)
     const path = join(imagesDir, name)
     if (!existsSync(path)) {
-      problems.push(`${item.id}: \`image_file\` names ${item.image_file}, which ` +
-        'is not on disk')
+      if (removalLog.has(name)) {
+        removed.push(`${item.id} (${removalLog.get(name)})`)
+      } else {
+        problems.push(`${item.id}: \`image_file\` names ${item.image_file}, ` +
+          'which is not on disk')
+      }
       continue
     }
     checked++
@@ -407,7 +430,7 @@ function verify(corpusPath, imagesDir) {
     names = readdirSync(imagesDir).filter((n) => n !== 'README.md')
   } catch { /* no archive yet, which the counts below report */ }
   const orphans = names.filter((n) => !referenced.has(n))
-  return { errors, problems, checked, orphans }
+  return { errors, problems, checked, orphans, removed }
 }
 
 // --- self-test -------------------------------------------------------------
@@ -574,6 +597,21 @@ function selftest() {
       clean && caught && missing,
       `clean ${clean}, changed ${caught}, missing ${missing}`)
 
+    // The same absent copy, once cleanup.mjs has said it removed it. A verdict
+    // recorded in review/ is the evidence now; the bytes are not coming back.
+    {
+      const log = readRemovalLog(
+        '# a comment\nfi-0001.png  dropped\n\nfi-9999.png  orphaned\n')
+      const v2 = verify(corpusPath, imagesDir, log)
+      check('a copy cleanup.mjs deleted on purpose is not a problem',
+        v2.problems.length === 0 && v2.removed.length === 1 &&
+        v2.removed[0].includes('dropped'),
+        `${v2.problems.join('; ')} | ${v2.removed.join('; ')}`)
+      check('the removal log skips comments and blank lines',
+        log.size === 2 && log.get('fi-9999.png') === 'orphaned',
+        [...log].map((e) => e.join('=')).join(' '))
+    }
+
     // An inline-svg record with no image_svg cannot be archived here, and this
     // tool does not go looking: reconstructing a graphic needs the whole page,
     // which only harvest.mjs ever has. Refused, so the item keeps no image and
@@ -654,13 +692,25 @@ async function main(argv) {
   }
 
   if (mode === 'verify') {
-    const { errors, problems, checked, orphans } = verify(corpusPath, imagesDir)
+    const logPath = join(dirname(imagesDir), 'images-removed.txt')
+    const removalLog = existsSync(logPath)
+      ? readRemovalLog(readFileSync(logPath, 'utf8'))
+      : new Map()
+    const { errors, problems, checked, orphans, removed } =
+      verify(corpusPath, imagesDir, removalLog)
     if (errors.length > 0) {
       for (const e of errors) process.stdout.write(`  ${e}\n`)
       return 2
     }
     process.stdout.write(`archive: ${checked} local image copy(ies) verified ` +
       `against ${basename(corpusPath)}\n`)
+    if (removed.length > 0) {
+      process.stdout.write(`${removed.length} record(s) name an image that ` +
+        'tools/cleanup.mjs deleted on purpose,\nlisted in ' +
+        `${basename(logPath)}. Not a problem:\n`)
+      process.stdout.write(`  ${removed.slice(0, 12).join(' ')}` +
+        (removed.length > 12 ? ` and ${removed.length - 12} more` : '') + '\n')
+    }
     if (orphans.length > 0) {
       process.stdout.write(`${orphans.length} file(s) in the archive that no item ` +
         'refers to. Left alone, because deleting corpus evidence is not this ' +
