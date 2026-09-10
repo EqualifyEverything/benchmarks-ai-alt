@@ -54,6 +54,14 @@ Written by `../tools/harvest.mjs`:
 - `accessible_name`. Non-empty. What a screen reader announces for the control.
 - `accessible_name_source`. `alt`, `aria-label`, `aria-labelledby`, `title`,
   `svg-title`, or `control-text`.
+- `image_coord_space`. `WIDTHxHEIGHT` for an `area`, `null` for everything else.
+  The rendered size of the map image, taken from its `width` and `height`
+  attributes. An `<area>`'s `coords` are CSS pixels of the map as displayed, not
+  of the file, so a page that ships `width="370"` on a 512-pixel-wide image puts
+  the region a third too far right for anyone measuring against the archived
+  bytes. `null` when the attributes are absent or not plain integers, because a
+  map scaled by a stylesheet cannot be detected from markup and a guess would be
+  worse than an admission.
 - `category`. 1 to 5. Follows from `subtype`.
 - `subtype`. One of the seven in directive 00.
 - `retrieved`. `YYYY-MM-DD`, the day the page was fetched.

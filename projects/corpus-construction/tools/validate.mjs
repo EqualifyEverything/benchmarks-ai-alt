@@ -137,6 +137,17 @@ export function checkItem(item, where) {
     bad('only an inline SVG carries an `image_svg`')
   }
 
+  // An area's coords are in the rendered pixel space of the map, which is not
+  // the archived file's size when the page sized the image down. Drawing the
+  // region needs that space, so record it where the markup states it.
+  if (!('image_coord_space' in item) || (item.image_coord_space !== null &&
+      !/^[1-9]\d*x[1-9]\d*$/.test(String(item.image_coord_space)))) {
+    bad('`image_coord_space` must be present, either null or WIDTHxHEIGHT, ' +
+      `not ${JSON.stringify(item.image_coord_space)}`)
+  } else if (item.element_role !== 'area' && item.image_coord_space !== null) {
+    bad('only an `area` has an `image_coord_space`')
+  }
+
   // element_html is a slice of the fetched page, never rebuilt. We cannot verify
   // that here without refetching, but we can catch a record that was clearly
   // hand-written.
@@ -347,6 +358,7 @@ function selftest() {
     id: 'fi-0001', status: 'unreviewed',
     page_url: 'https://example.gov/help', domain: 'example.gov',
     sector: 'government', image_url: 'https://example.gov/i/print.png',
+    image_coord_space: null,
     image_svg: null, image_file: null, image_sha256: null, implementation: 'img',
     element_role: 'button',
     element_html: '<button><img src="/i/print.png" alt="Print this page"></button>',
@@ -420,6 +432,35 @@ function selftest() {
   check('an inline SVG with no assembled document is rejected',
     checkItem(inlineSvg({ image_svg: null }), 'x')
       .some((e) => e.includes('needs an `image_svg`')))
+  // The map coords space. An old record predates the field entirely, and an
+  // unreviewable region overlay is the failure being prevented.
+  const area = (over = {}) => item({
+    implementation: 'area', element_role: 'area', category: 4,
+    subtype: 'linked-complex-graphic-or-image-map',
+    element_html: '<area shape="rect" coords="0,0,9,9" href="/n" alt="North">',
+    image_coord_space: '370x296', ...over,
+  })
+  check('an area carrying its rendered map size passes',
+    checkItem(area(), 'x').length === 0, JSON.stringify(checkItem(area(), 'x')))
+  check('an area with no recorded coord space is allowed, since markup may ' +
+    'not state one',
+    checkItem(area({ image_coord_space: null }), 'x').length === 0,
+    JSON.stringify(checkItem(area({ image_coord_space: null }), 'x')))
+  check('a record written before the field existed is rejected',
+    (() => {
+      const old = area()
+      delete old.image_coord_space
+      return checkItem(old, 'x').some((e) => e.includes('must be present'))
+    })())
+  check('a coord space that is not two positive integers is rejected',
+    checkItem(area({ image_coord_space: '100%x50' }), 'x')
+      .some((e) => e.includes('WIDTHxHEIGHT')) &&
+    checkItem(area({ image_coord_space: '0x296' }), 'x')
+      .some((e) => e.includes('WIDTHxHEIGHT')))
+  check('only an area carries a coord space',
+    checkItem(item({ image_coord_space: '370x296' }), 'x')
+      .some((e) => e.includes('only an `area`')))
+
   check('an image that is not inline SVG must not carry an image_svg',
     checkItem(item({ image_svg: '<svg xmlns="x"></svg>' }), 'x')
       .some((e) => e.includes('only an inline SVG')))

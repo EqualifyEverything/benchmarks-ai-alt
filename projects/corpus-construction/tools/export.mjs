@@ -40,10 +40,10 @@ const REPO = resolve(PROJECT, '..', '..')
 const VALIDATION_PREFIX = 'projects/corpus-construction/'
 
 // Everything a person needs to judge the pair, and nothing about how we decided
-// to show it to them. The first eight are what js/main.js reads.
+// to show it to them. The first nine are what js/main.js reads.
 const EXPORTED = [
   'id', 'image_file', 'image_url', 'element_html', 'observed_alt', 'page_url',
-  'element_role', 'surrounding_text',
+  'element_role', 'surrounding_text', 'image_coord_space',
   'domain', 'sector', 'implementation', 'category', 'subtype',
   'accessible_name', 'accessible_name_source', 'retrieved',
 ]
@@ -120,7 +120,7 @@ function selftest() {
     const row = shape(item('fi-0001'))
     check('the exported record carries every field the reviewer renders',
       ['id', 'image_file', 'image_url', 'element_html', 'observed_alt',
-        'page_url', 'element_role', 'surrounding_text']
+        'page_url', 'element_role', 'surrounding_text', 'image_coord_space']
         .every((f) => row[f] !== undefined),
       JSON.stringify(Object.keys(row)))
     check('review bookkeeping is not exported',

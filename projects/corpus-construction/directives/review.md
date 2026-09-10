@@ -40,6 +40,10 @@ number. Each line holds:
 - `image_file`, the archived copy of the image, relative to this project. Look
   at it. For an inline SVG this is the SVG written out of the markup.
 - `image_url`, the URL it came from, or `null` for an inline SVG
+- `image_coord_space`, for an `area` only: `WIDTHxHEIGHT`, the size the map was
+  displayed at, which is the space its `coords` are measured in. `null` when the
+  markup states none, meaning the coordinates are in the archived file's own
+  pixel space.
 - `page_url`, the page it was found on
 - `implementation`, one of `img`, `inline-svg`, `input-image`, `area`
 - `element_role`, one of `link`, `button`, `input-image`, `area`, `custom`
@@ -60,6 +64,13 @@ against. If a record looks wrong, that is a `drop`, not a reason to go looking.
 The one thing worth doing beyond reading the record: look at the image file. An
 icon whose alt text says "Search" and whose bytes are a shopping cart is exactly
 what this pass exists to catch.
+
+One exception to that, for an `area`. The archived file is the whole image map,
+because that is the one file the browser downloads, so what you are looking at is
+a national map and the alt text names one county. Judge it from the `coords` in
+`element_html`, read against `image_coord_space` when it is set, not from the
+picture. Do not drop an `area` for describing only part of what you can see: that
+is what an `<area>` is.
 
 
 ## Question 1: is it functional?

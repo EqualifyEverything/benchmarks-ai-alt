@@ -46,6 +46,10 @@ Written by `tools/harvest.mjs`, all mechanically:
 - `domain`, the host of `page_url`
 - `sector`, from the seed list the URL came from
 - `image_url`, the resolved image URL, or `null` for an inline SVG
+- `image_coord_space`, for an `area` only: `WIDTHxHEIGHT`, the rendered size of
+  the map image from its `width` and `height` attributes, because an `<area>`'s
+  `coords` are pixels of the map as displayed rather than of the archived file.
+  `null` everywhere else, and `null` when the attributes are not plain integers.
 - `image_svg`, for an inline SVG only: a standalone SVG document assembled from
   the page, sprite symbols copied in and the namespace declared. `null` for
   every other implementation. This is the one field that is built rather than

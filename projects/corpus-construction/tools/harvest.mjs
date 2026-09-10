@@ -142,20 +142,44 @@ function classify(control, image, pageUrl) {
   return { category: 2, subtype: 'action-or-toggle-icon' }
 }
 
+// An `<area>` describes a region of the image that declares `usemap`, so the
+// picture being described lives on a different element entirely.
+function mapOwner(tree, image) {
+  const map = ancestors(image).find((n) => n.tag === 'map')
+  if (map === undefined) return null
+  const name = attr(map, 'name') ?? attr(map, 'id')
+  if (name === null) return null
+  return findNode(tree, (n) =>
+    (n.tag === 'img' || n.tag === 'object') &&
+    (attr(n, 'usemap') ?? '').replace(/^#/, '') === name)
+}
+
+// The pixel space an `<area>`'s `coords` are measured in. Per the HTML
+// specification they are CSS pixels of the map image as rendered, not of the
+// file, so a page that ships `width="370"` on a 512-pixel-wide image puts the
+// region 1.38 times too far right for anyone reading the coordinates against
+// the archived bytes. weather.gov/forecastmaps does exactly that, so the
+// validation tool needs the rendered size recorded alongside the URL. Only the
+// `width` and `height` attributes are readable from markup; a map scaled by a
+// stylesheet stays undetectable here, which is why this is `null` rather than a
+// guess when the attributes are absent.
+function coordSpaceFor(tree, image) {
+  if (image.tag !== 'area') return null
+  const owner = mapOwner(tree, image)
+  if (owner === null) return null
+  const w = (attr(owner, 'width') ?? '').trim()
+  const h = (attr(owner, 'height') ?? '').trim()
+  if (!/^\d+$/.test(w) || !/^\d+$/.test(h)) return null
+  if (Number(w) === 0 || Number(h) === 0) return null
+  return `${w}x${h}`
+}
+
 // The image URL, resolved against the page. Inline SVG has none: its bytes are
 // the markup itself, which tools/fetch-images.mjs writes out.
 function imageUrlFor(tree, image, pageUrl) {
   if (image.tag === 'svg') return null
   if (image.tag === 'area') {
-    // An `<area>` describes a region of the image that declares `usemap`, so the
-    // picture being described lives on a different element entirely.
-    const map = ancestors(image).find((n) => n.tag === 'map')
-    if (map === undefined) return null
-    const name = attr(map, 'name') ?? attr(map, 'id')
-    if (name === null) return null
-    const owner = findNode(tree, (n) =>
-      (n.tag === 'img' || n.tag === 'object') &&
-      (attr(n, 'usemap') ?? '').replace(/^#/, '') === name)
+    const owner = mapOwner(tree, image)
     return owner === null ? null : absolute(attr(owner, 'src'), pageUrl)
   }
   const src = attr(image, 'src')
@@ -352,6 +376,7 @@ export function harvestDoc(doc, pageUrl, sector, retrieved) {
       domain,
       sector,
       image_url: imageUrl,
+      image_coord_space: coordSpaceFor(tree, node),
       image_svg: svg,
       image_file: null,
       image_sha256: null,
@@ -700,7 +725,11 @@ const FIXTURE_PAGES = {
   <area shape="rect" coords="0,0,9,9" href="/north" alt="North region">
   <area shape="rect" coords="9,0,18,9" href="/south" alt="South region">
 </map>
-<img src="/img/map.png" usemap="#regions" alt="Sales regions">
+<img src="/img/map.png" usemap="#regions" alt="Sales regions" width="180" height="90">
+<map name="zones">
+  <area shape="rect" coords="0,0,9,9" href="/east" alt="East region">
+</map>
+<img src="/img/map2.png" usemap="#zones" alt="Zones" width="100%">
 </body></html>`,
   'dupes.html': `<!doctype html><html><body>
 <a href="/pay"><img src="/b.gif" alt="Buy now"></a>
@@ -722,7 +751,7 @@ async function selftest() {
   const by = (id) => page.items.find((i) => i.accessible_name === id)
 
   check('every named functional image is found, and nothing else',
-    page.items.length === 8,
+    page.items.length === 9,
     `found ${page.items.length}: ${page.items.map((i) => i.accessible_name).join(' | ')}`)
 
   check('an unnamed control is skipped, not recorded',
@@ -802,6 +831,15 @@ async function selftest() {
     north.category === 4 &&
     north.image_url === 'https://shop.example.com/img/map.png',
     JSON.stringify(north))
+  check('an area records the rendered size its coords are measured in',
+    north !== undefined && north.image_coord_space === '180x90',
+    JSON.stringify(north?.image_coord_space))
+  check('a map sized by percentage records no coord space rather than a guess',
+    by('East region')?.image_coord_space === null,
+    JSON.stringify(by('East region')?.image_coord_space))
+  check('coord space is an image-map concern only',
+    by('Cart, 3 items')?.image_coord_space === null,
+    JSON.stringify(by('Cart, 3 items')?.image_coord_space))
 
   const dupes = harvestDoc(FIXTURE_PAGES['dupes.html'],
     'https://pay.example.com/', 'commerce', '2026-08-27')

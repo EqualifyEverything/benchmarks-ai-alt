@@ -42,11 +42,16 @@
             aria-label="Image under review">
 
             <div class="card-image">
-                <img id="current-image" src="" alt="">
+                <div id="image-frame">
+                    <img id="current-image" src="" alt="">
+                    <svg id="region-overlay" class="hidden" aria-hidden="true"
+                        preserveAspectRatio="xMidYMid meet"></svg>
+                </div>
                 <p id="image-placeholder" class="placeholder hidden">
                     No external image. Evaluate using the context below.
                 </p>
             </div>
+            <p id="region-note" class="region-note hidden"></p>
 
             <div class="card-details" aria-hidden="true">
                 <h2>Alt text under review</h2>

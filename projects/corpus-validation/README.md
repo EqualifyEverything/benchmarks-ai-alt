@@ -32,6 +32,24 @@ Of the 78 items in the first corpus, 36 have no usable alt attribute on the
 image itself, so this distinction is most of the corpus rather than an edge
 case.
 
+## Image maps
+
+Four items are a single clickable region of an image map, an `<area>` inside a
+`<map>`. The archived image is the whole map, because that is the one file the
+browser downloads, so on its own the card would ask you to judge "Northeast
+Michigan" against a national forecast chart.
+
+The tool draws the region the text actually labels as an outline over the map,
+and states the same thing in words underneath, because an outline conveys
+nothing to a screen reader user. The note gives the shape, roughly where on the
+map it sits, and its pixel bounds.
+
+The outline assumes the coordinates were authored against the image's intrinsic
+size. That is the ordinary case, and every coordinate in these four maps falls
+inside the intrinsic box, but it is not guaranteed by the HTML specification: a
+page that displayed its map scaled down would have coordinates in the scaled
+space, and the outline would then be drawn in the wrong place.
+
 ## Running locally
 
 Serve the repository root, not this directory. The archived images live in the
