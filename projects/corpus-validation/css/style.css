@@ -199,6 +199,18 @@ button[aria-disabled="true"] {
     background: #f0f0f5;
 }
 
+/* The primary action on the results panel. Without this it inherits the
+   browser's default button background, which next to the bordered GitHub
+   link beside it reads as disabled. */
+#download-results {
+    background: var(--color-primary);
+    color: #fff;
+}
+
+#download-results:hover:not([disabled]) {
+    background: var(--color-primary-hover);
+}
+
 /* Progress bar */
 #progress-bar {
     height: 8px;

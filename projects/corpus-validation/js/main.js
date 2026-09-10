@@ -346,8 +346,17 @@
         var a = document.createElement('a');
         a.href = url;
         a.download = 'validation-' + sessionId + '.json';
+
+        // The anchor has to be in the document for the click to count, and the
+        // object URL has to outlive the click long enough for the browser to
+        // read the blob. Revoking on the same tick cancels the download.
+        a.style.display = 'none';
+        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
+        setTimeout(function () {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 0);
     }
 
     // Helpers
