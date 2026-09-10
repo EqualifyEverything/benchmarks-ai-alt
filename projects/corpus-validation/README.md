@@ -34,13 +34,31 @@ case.
 
 ## Running locally
 
-From this directory:
+Serve the repository root, not this directory. The archived images live in the
+corpus construction project, and the tool reaches them with a relative path that
+climbs out of this directory. A server rooted here refuses to follow it.
+
+From the repository root:
 
 ```
 python3 -m http.server 8000
 ```
 
-Then open http://localhost:8000 in a browser.
+Then open http://localhost:8000/projects/corpus-validation/ in a browser.
+
+
+## Running on GitHub Pages
+
+Serve the whole repository from the default branch at the root path, for the
+same reason. The tool is then at:
+
+```
+https://equalifyeverything.github.io/benchmarks-ai-alt/projects/corpus-validation/
+```
+
+The repository has a `.nojekyll` file at its root so Pages copies the files
+verbatim instead of running them through Jekyll. Nothing here needs a site
+generator, and the archive is 965 image files that a build would only slow down.
 
 ## Accessibility
 
